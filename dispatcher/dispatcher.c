@@ -17,7 +17,7 @@
 
 /* global defines */
 #define PENDING_FULL_LIMIT 60    /* log overload */
-#define QUEUE_LIMIT        10    /* maximum number of concurrent workers */
+#define QUEUE_LIMIT        5     /* maximum number of concurrent workers */
 #define QUERY_LIMIT        1024  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
@@ -171,7 +171,7 @@ int main()
 
             /* extract new works */
             snprintf(query, QUERY_LIMIT,
-                     "SELECT * FROM deferred_tasks WHERE status = 'new' AND run_after < %ld ORDER BY priority DESC LIMIT 1 FOR UPDATE",
+                     "SELECT * FROM deferred_tasks_new WHERE status = 'new' AND run_after < %ld ORDER BY priority DESC LIMIT 1 FOR UPDATE",
                      timestamp);
             if (!dp_mysql_query(db, query))
                 break;
@@ -190,7 +190,7 @@ int main()
             /* update database */
             if (rows >= 1 && queue_counter < QUEUE_LIMIT) {
                 snprintf(query, QUERY_LIMIT,
-                         "UPDATE deferred_tasks SET status = 'working' WHERE id = %d", task.id);
+                         "UPDATE deferred_tasks_new SET status = 'working' WHERE id = %d", task.id);
                 if (!dp_mysql_query(db, query))
                     break;
             }
@@ -249,6 +249,10 @@ int main()
                 dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
                           queue_counter + 1, QUEUE_LIMIT, worker->task.id);
 
+                if (!dp_mysql_init(&db) ||
+                    !dp_mysql_connect(db))
+                    return EXIT_FAILURE;
+
                 worker_result = gearman_client_do(client,
                                                   worker->task.type,
                                                   NULL,
@@ -259,12 +263,12 @@ int main()
 
                 /* error executing work, retry */
                 if (error) {
-                    dp_logger(LOG_ERR, "Wworker job (%d) FAILED (%d)",
+                    dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
                               worker->task.id, error);
 
                     /* prepare query */
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks SET status = 'new', result = '' WHERE id = %d",
+                             "UPDATE deferred_tasks_new SET status = 'new', result = '' WHERE id = %d",
                              worker->task.id);
 
                     /* execute query */
@@ -277,14 +281,14 @@ int main()
 
                 if (!strcmp(reply.status, ":ok"))
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks SET status = 'done', result = '%s' WHERE id = %d",
+                             "UPDATE deferred_tasks_new SET status = 'done', result = '%s' WHERE id = %d",
                              reply.result, worker->task.id);
                 else {
                     dp_logger(LOG_ERR, "Worker job (%d) result in NOT ok (%s)",
                               worker->task.id, reply.status);
 
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
+                             "UPDATE deferred_tasks_new SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
                              timestamp + TIMESTAMP_DELAY, reply.result, worker->task.id);
                 }
 
