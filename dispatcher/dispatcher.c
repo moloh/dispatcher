@@ -17,11 +17,11 @@
 
 /* global defines */
 #define PENDING_FULL_LIMIT 60    /* log overload */
-#define QUEUE_LIMIT        50    /* maximum number of concurrent workers */
+#define QUEUE_LIMIT        5     /* maximum number of concurrent workers */
 #define QUERY_LIMIT        1024  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
 #define SENSE_LIMIT        10    /* sense log delay */
-#define SLEEP_TIMEOUT      3     /* main loop timeout */
+#define SLEEP_TIMEOUT      5     /* main loop timeout */
 #define TIMESTAMP_DELAY    5*60  /* task execution delay */
 
 /* mysql server info */
@@ -263,14 +263,14 @@ int main()
                 if (!strcmp(reply.status, ":ok"))
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks SET status = 'done', result = '%s' WHERE id = %d",
-                             worker_result, worker->task.id);
+                             reply.result, worker->task.id);
                 else {
                     dp_logger(LOG_ERR, "Forked worker job (%d) result in NOT ok (%s) -> %d",
                               worker->task.id, reply.status, getpid());
 
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
-                             timestamp + TIMESTAMP_DELAY, worker_result, worker->task.id);
+                             timestamp + TIMESTAMP_DELAY, reply.result, worker->task.id);
                 }
 
                 /* execute query */
@@ -408,6 +408,9 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
         end = str + strlen(str);
 
     reply->result = dp_strndup(str, end - str);
+
+    /* TODO: escape string for MySQL */
+
     return TRUE;
 }
 
