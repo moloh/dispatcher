@@ -17,11 +17,11 @@
 
 /* global defines */
 #define PENDING_FULL_LIMIT 60    /* log overload */
-#define QUEUE_LIMIT        5     /* maximum number of concurrent workers */
+#define QUEUE_LIMIT        10    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        1024  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
-#define SENSE_LIMIT        10    /* sense log delay */
-#define SLEEP_TIMEOUT      5     /* main loop timeout */
+#define SENSE_LIMIT        30    /* sense log delay */
+#define SLEEP_TIMEOUT      1     /* main loop timeout */
 #define TIMESTAMP_DELAY    5*60  /* task execution delay */
 
 /* mysql server info */
@@ -170,10 +170,14 @@ int main()
 
             /* process query result */
             result = mysql_store_result(db);
-            rows = mysql_num_rows(result);
-            if (rows >= 1 && queue_counter < QUEUE_LIMIT)
-                dp_mysql_get_task(&task, result);
-            mysql_free_result(result);
+            if (result == NULL)
+                rows = 0;
+            else {
+                rows = mysql_num_rows(result);
+                if (rows >= 1 && queue_counter < QUEUE_LIMIT)
+                    dp_mysql_get_task(&task, result);
+                mysql_free_result(result);
+            }
 
             /* update database */
             if (rows >= 1 && queue_counter < QUEUE_LIMIT) {
@@ -300,8 +304,12 @@ int main()
 
         /* wait for next iteration */
         /* NOTE: sleep is broken when we receive signal */
-        for (uint timeout = SLEEP_TIMEOUT; timeout > 0;)
-            timeout = sleep(timeout);
+        /* NOTE: sleep only when no task are waiting or we have full queue */
+
+        if (rows == 0 ||
+            (rows >= 1 && queue_counter >= QUEUE_LIMIT))
+            for (uint timeout = SLEEP_TIMEOUT; timeout > 0;)
+                timeout = sleep(timeout);
 
         /* update status of workers */
         dp_status_update();
@@ -449,7 +457,7 @@ dp_bool dp_mysql_connect(MYSQL *db)
 /* logged MySQL query wrapper with basic recovering */
 dp_bool dp_mysql_query(MYSQL *db, const char *query)
 {
-    int error;
+    MYSQL_RES *result;
 
     /* check if we have query at all */
     if (query == NULL) {
@@ -458,11 +466,15 @@ dp_bool dp_mysql_query(MYSQL *db, const char *query)
     }
 
     /* execute query */
-    if (error = mysql_query(db, query)) {
-        dp_logger(LOG_ERR, "MySQL query error, recovering: %s", mysql_error(db));
+    if (mysql_query(db, query)) {
+        dp_logger(LOG_ERR, "MySQL query error (%d), recovering: %s",
+                  mysql_errno(db),
+                  mysql_error(db));
 
-        switch (error) {
+        switch (mysql_errno(db)) {
             case CR_COMMANDS_OUT_OF_SYNC:  /* try to recover */
+                result = mysql_store_result(db);
+                mysql_free_result(result);
                 return FALSE;
             case CR_SERVER_GONE_ERROR:     /* try to reconnect */
             case CR_SERVER_LOST:
