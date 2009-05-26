@@ -24,6 +24,10 @@
 #define SLEEP_TIMEOUT      1     /* main loop timeout */
 #define TIMESTAMP_DELAY    5*60  /* task execution delay */
 
+/* syslog identifiers */
+#define DP_PARENT       "dispatcher"
+#define DP_CHILD        "worker"
+
 /* mysql server info */
 #define DP_MYSQL_HOST   "192.168.10.89"
 #define DP_MYSQL_USER   "root"
@@ -90,6 +94,7 @@ dp_bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result); /* extract MySQL
 void    dp_mysql_task_free  (volatile dp_task *task);           /* free data associated with task */
 void    dp_mysql_task_clear (volatile dp_task *task);           /* clear data associated with task */
 
+void    dp_logger_init   (const char *ident);                      /* initialize logging capabilities */
 void    dp_logger        (int priority, const char *message, ...); /* log message with specific priority */
 int     dp_asprintf      (char **strp, const char *format, ...);   /* portability wrapper, allocated sprintf */
 char   *dp_strcat        (const char *str, ...);                   /* concatenate string helper */
@@ -118,6 +123,9 @@ int main()
 
     /* initialize temporary mask */
     sigprocmask(0, NULL, &mask);
+
+    /* initialize logger */
+    dp_logger_init(DP_PARENT);
 
     /* gearman initialize */
     if (!dp_gearman_init(&client))
@@ -235,8 +243,11 @@ int main()
                 void *worker_result = NULL;
                 size_t worker_result_size;
 
-                dp_logger(LOG_DEBUG, "Forked worker (%d/%d) job (%d) -> %d",
-                          queue_counter + 1, QUEUE_LIMIT, worker->task.id, getpid());
+                /* initialize logger */
+                dp_logger_init(DP_CHILD);
+
+                dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
+                          queue_counter + 1, QUEUE_LIMIT, worker->task.id);
 
                 worker_result = gearman_client_do(client,
                                                   worker->task.type,
@@ -248,8 +259,8 @@ int main()
 
                 /* error executing work, retry */
                 if (error) {
-                    dp_logger(LOG_ERR, "Forked worker job (%d) FAILED (%d) -> %d",
-                              worker->task.id, error, getpid());
+                    dp_logger(LOG_ERR, "Wworker job (%d) FAILED (%d)",
+                              worker->task.id, error);
 
                     /* prepare query */
                     snprintf(query, QUERY_LIMIT,
@@ -269,8 +280,8 @@ int main()
                              "UPDATE deferred_tasks SET status = 'done', result = '%s' WHERE id = %d",
                              reply.result, worker->task.id);
                 else {
-                    dp_logger(LOG_ERR, "Forked worker job (%d) result in NOT ok (%s) -> %d",
-                              worker->task.id, reply.status, getpid());
+                    dp_logger(LOG_ERR, "Worker job (%d) result in NOT ok (%s)",
+                              worker->task.id, reply.status);
 
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
@@ -281,7 +292,7 @@ int main()
                 if (!dp_mysql_query(db, query))
                     return EXIT_FAILURE;
 
-                dp_logger(LOG_DEBUG, "Worker finished -> %d", getpid());
+                dp_logger(LOG_DEBUG, "Worker finished");
                 return EXIT_SUCCESS;
             }
 
@@ -638,13 +649,15 @@ char *dp_strcat(const char *str, ...)
     return cat - size;
 }
 
+void dp_logger_init(const char *ident)
+{
+    closelog();
+    openlog(ident, LOG_PID, LOG_DAEMON);
+}
+
 void dp_logger(int priority, const char *message, ...)
 {
     va_list args;
-
-    /* ensure to use daeamon facility */
-    priority &= LOG_FACMASK;
-    priority |= LOG_DAEMON;
 
     va_start(args, message);
     vsyslog(priority, message, args);
