@@ -7,6 +7,7 @@
 #include <unistd.h>   /* sleep, fork */
 #include <signal.h>   /* SIGCHILD handling */
 #include <sys/wait.h> /* wait */
+#include <time.h>     /* time */
 
 /* other headers */
 #include <mysql/mysql.h>        /* mysql */
@@ -21,6 +22,7 @@
 #define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
 #define SENSE_LIMIT        10    /* sense log delay */
 #define SLEEP_TIMEOUT      3     /* main loop timeout */
+#define TIMESTAMP_DELAY    5*60  /* task execution delay */
 
 /* mysql server info */
 #define DP_MYSQL_HOST   "192.168.10.89"
@@ -38,6 +40,9 @@ typedef _Bool dp_bool;
 #define TRUE  (_Bool)1
 #define FALSE (_Bool)0
 
+/* empty string */
+#define EMPTY_STRING ""
+
 /* task definition structure */
 typedef struct dp_task {
     int id;
@@ -45,6 +50,7 @@ typedef struct dp_task {
     char *type;
     char *description;
     char *status;
+    time_t run_after;
 } dp_task;
 
 /* child definition structure */
@@ -85,6 +91,7 @@ void    dp_mysql_task_free  (volatile dp_task *task);           /* free data ass
 void    dp_mysql_task_clear (volatile dp_task *task);           /* clear data associated with task */
 
 void    dp_logger        (int priority, const char *message, ...); /* log message with specific priority */
+int     dp_asprintf      (char **strp, const char *format, ...);   /* portability wrapper, allocated sprintf */
 char   *dp_strcat        (const char *str, ...);                   /* concatenate string helper */
 char   *dp_strdup        (const char *str);                        /* dup string helper */
 char   *dp_strndup       (const char *str, size_t length);         /* sized dup string helper */
@@ -100,7 +107,7 @@ int main()
     size_t pending_full_counter = 0;      /* count when queue is full and there are still pending tasks */
     size_t queue_counter = 0;             /* number of jobs in queue */
     size_t sense_counter = 0;             /* number of empty iterations */
-    char query[QUERY_LIMIT];              /* query buffer */
+    char query[QUERY_LIMIT], *aquery;     /* query buffer */
     gearman_client_st *client = NULL;
     MYSQL *db = NULL;
     sigset_t mask;
@@ -134,12 +141,16 @@ int main()
 
     /* main loop */
     while (TRUE) {
+        time_t timestamp;
         dp_task task;
         size_t rows = 0;
         pid_t pid;
 
         /* extract current number of child workers */
         queue_counter = child_counter;
+
+        /* get timestamp */
+        timestamp = time(NULL);
 
         /* START fake loop for query "exceptions" */
         do {
@@ -152,7 +163,8 @@ int main()
 
             /* extract new works */
             snprintf(query, QUERY_LIMIT,
-                     "SELECT * FROM deferred_tasks WHERE status = 'new' ORDER BY priority DESC LIMIT 1 FOR UPDATE");
+                     "SELECT * FROM deferred_tasks WHERE status = 'new' AND run_after < %ld ORDER BY priority DESC LIMIT 1 FOR UPDATE",
+                     timestamp);
             if (!dp_mysql_query(db, query))
                 break;
 
@@ -246,10 +258,9 @@ int main()
                     return error;
                 }
 
-                /*
                 dp_gearman_get_reply(&reply, worker_result, worker_result_size);
 
-                if (reply.status && !strcmp(reply.status, ":ok"))
+                if (!strcmp(reply.status, ":ok"))
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks SET status = 'done', result = '%s' WHERE id = %d",
                              worker_result, worker->task.id);
@@ -258,15 +269,13 @@ int main()
                               worker->task.id, reply.status, getpid());
 
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks SET status = 'new', result = '%s' WHERE id = %d",
-                             worker_result, worker->task.id);
+                             "UPDATE deferred_tasks SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
+                             timestamp + TIMESTAMP_DELAY, worker_result, worker->task.id);
                 }
-                */
+
                 /* execute query */
-                /*
                 if (!dp_mysql_query(db, query))
                     return EXIT_FAILURE;
-                */
 
                 dp_logger(LOG_DEBUG, "Worker finished -> %d", getpid());
                 return EXIT_SUCCESS;
@@ -384,10 +393,13 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
     char *str, *end;
 
     /* initialize result */
-    memset(reply, 0, sizeof(dp_task_reply));
+    reply->result = EMPTY_STRING;
+    reply->error = EMPTY_STRING;
+    reply->bakctrace = EMPTY_STRING;
+    reply->message = EMPTY_STRING;
+    reply->status = EMPTY_STRING;
 
     /* quick hack to get status */
-
     if ((str = strstr(result, ":status:")) == NULL)
         return FALSE;
     str += 8;
@@ -435,6 +447,12 @@ dp_bool dp_mysql_connect(MYSQL *db)
 dp_bool dp_mysql_query(MYSQL *db, const char *query)
 {
     int error;
+
+    /* check if we have query at all */
+    if (query == NULL) {
+        dp_logger(LOG_ERR, "MySQL query is missing!");
+        return FALSE;
+    }
 
     /* execute query */
     if (error = mysql_query(db, query)) {
@@ -493,6 +511,8 @@ dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
             task->status = row[i];
         else if (!strcmp(field->name, "priority"))
             sscanf(row[i], "%d", &task->priority);
+        else if (!strcmp(field->name, "run_after"))
+            sscanf(row[i], "%ld", &task->run_after);
     }
 
     /* process id */
@@ -502,7 +522,7 @@ dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     if (task->type)
         task->type = dp_strdup(task->type);
     if (task->description)
-        task->description = dp_strcat(task->description, buffer, NULL);
+        task->description = dp_strdup(task->description);
     if (task->status)
         task->status = dp_strdup(task->status);
 
@@ -614,6 +634,41 @@ void dp_logger(int priority, const char *message, ...)
     va_start(args, message);
     vsyslog(priority, message, args);
     va_end(args);
+}
+
+int dp_asprintf(char **str, const char *format, ...)
+{
+    va_list arg;
+    int retval = -1;
+
+    va_start(arg, format);
+
+    /* initialize result */
+    *str = NULL;
+
+#ifdef HAVE_ASPRINTF
+    retval = vasprintf(str, format, arg);
+#else
+    char character;
+    int size;
+
+    /* get size of string */
+    if ((size = vsnprintf(&character, 1, format, arg)) < 0)
+        goto retval;
+
+    /* allocate memory */
+    if ((*str = malloc(size+1)) == NULL)
+        goto retval;
+
+    if ((retval = vsprintf(*str, format, arg)) < 0) {
+        free(*str); *str = NULL;
+        goto retval;
+    }
+#endif
+
+retval:
+    va_end(arg);
+    return retval;
 }
 
 void dp_sigchld(int signal)
