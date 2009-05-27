@@ -114,7 +114,7 @@ int main()
     size_t pending_full_counter = 0;      /* count when queue is full and there are still pending tasks */
     size_t queue_counter = 0;             /* number of jobs in queue */
     size_t sense_counter = 0;             /* number of empty iterations */
-    char query[QUERY_LIMIT], *aquery;     /* query buffer */
+    char query[QUERY_LIMIT]; /*, *aquery; */  /* query buffer */
     gearman_client_st *client = NULL;
     MYSQL *db = NULL;
     sigset_t mask;
@@ -774,7 +774,7 @@ void dp_sigchld(int signal)
     /* NOTE: errors are discarded */
     while ((pid = wait(&status)) > 0) {
         /* update status if possible */
-        if (worker = dp_child_pid(pid)) {
+        if ((worker = dp_child_pid(pid)) != NULL) {
             worker->status = status;
             worker->update = TRUE;
         }
@@ -848,6 +848,7 @@ volatile dp_child *dp_child_null()
     for (size_t i = 0; i < QUEUE_LIMIT; ++i)
         if (child_status[i].null)
             return &child_status[i];
+    return NULL;
 }
 
 volatile dp_child *dp_child_task_id(int id)
@@ -856,6 +857,7 @@ volatile dp_child *dp_child_task_id(int id)
         if (!child_status[i].null)
             if (child_status[i].task.id == id)
                 return &child_status[i];
+    return NULL;
 }
 
 volatile dp_child *dp_child_pid(pid_t pid)
@@ -864,5 +866,6 @@ volatile dp_child *dp_child_pid(pid_t pid)
         if (!child_status[i].null)
             if (child_status[i].pid == pid)
                 return &child_status[i];
+    return NULL;
 }
 
