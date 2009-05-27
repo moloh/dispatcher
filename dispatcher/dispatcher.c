@@ -17,7 +17,7 @@
 
 /* global defines */
 #define PENDING_FULL_LIMIT 60    /* log overload */
-#define QUEUE_LIMIT        5     /* maximum number of concurrent workers */
+#define QUEUE_LIMIT        10     /* maximum number of concurrent workers */
 #define QUERY_LIMIT        1024  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
@@ -168,6 +168,7 @@ int main()
             /* prepare transaction */
             if (!dp_mysql_query(db, "BEGIN"))
                 break;
+            dp_logger(LOG_DEBUG, "BEGIN");
 
             /* extract new works */
             snprintf(query, QUERY_LIMIT,
@@ -187,6 +188,8 @@ int main()
                 mysql_free_result(result);
             }
 
+            dp_logger(LOG_DEBUG, "COMMIT (%d)", task.id);
+
             /* update database */
             if (rows >= 1 && queue_counter < QUEUE_LIMIT) {
                 snprintf(query, QUERY_LIMIT,
@@ -197,9 +200,10 @@ int main()
 
             if (!dp_mysql_query(db, "COMMIT"))
                 break;
-
+            dp_logger(LOG_DEBUG, "COMMIT");
         /* END fake loop for query "exceptions" */
         } while (FALSE);
+        dp_logger(LOG_DEBUG, "END");
 
         /* update basic counters */
         if (rows == 0) {
@@ -249,6 +253,7 @@ int main()
                 dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
                           queue_counter + 1, QUEUE_LIMIT, worker->task.id);
 
+                memset(db, 0, sizeof(MYSQL));
                 if (!dp_mysql_init(&db) ||
                     !dp_mysql_connect(db))
                     return EXIT_FAILURE;
@@ -709,16 +714,14 @@ void dp_sigchld(int signal)
     int status;
     pid_t pid;
 
-    /* wait for first child */
-    pid = wait(&status);
-
-    if (pid < 0)
-        return;
-
-    /* update status */
-    if (worker = dp_child_pid(pid)) {
-        worker->status = status;
-        worker->update = TRUE;
+    /* check if there are any children waiting */
+    /* NOTE: errors are discarded */
+    while ((pid = wait(&status)) > 0) {
+        /* update status if possible */
+        if (worker = dp_child_pid(pid)) {
+            worker->status = status;
+            worker->update = TRUE;
+        }
     }
 }
 
