@@ -18,8 +18,8 @@
 
 /* global defines */
 #define PENDING_FULL_LIMIT 60    /* log overload */
-#define QUEUE_LIMIT        10     /* maximum number of concurrent workers */
-#define QUERY_LIMIT        1024  /* maximum MySQL query length */
+#define QUEUE_LIMIT        10    /* maximum number of concurrent workers */
+#define QUERY_LIMIT        4096  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
 #define SLEEP_TIMEOUT      1     /* main loop timeout */
@@ -69,7 +69,7 @@ typedef struct dp_child {
 
 /* task reply definition structure */
 typedef struct dp_task_reply {
-    char *bakctrace;
+    char *backtrace;
     char *error;
     char *status;
     char *result;
@@ -99,9 +99,9 @@ void    dp_mysql_task_clear (volatile dp_task *task);                  /* clear 
 void    dp_logger_init   (const char *ident);                      /* initialize logging capabilities */
 void    dp_logger        (int priority, const char *message, ...); /* log message with specific priority */
 int     dp_asprintf      (char **strp, const char *format, ...);   /* portability wrapper, allocated sprintf */
-char   *dp_strcat        (const char *str, ...);                   /* concatenate string helper */
 char   *dp_strdup        (const char *str);                        /* dup string helper */
 char   *dp_strndup       (const char *str, size_t length);         /* sized dup string helper */
+char   *dp_strcat        (const char *str, ...);                   /* concatenate string helper */
 void    dp_sigchld       (int signal);                             /* SIGCHLD handler */
 void    dp_status_update ();                                       /* process child_status table */
 
@@ -115,7 +115,6 @@ int main()
     size_t queue_counter = 0;             /* number of jobs in queue */
     size_t sense_counter = 0;             /* number of empty iterations */
     char query[QUERY_LIMIT]; /*, *aquery; */  /* query buffer */
-    gearman_client_st *client = NULL;
     MYSQL *db = NULL;
     sigset_t mask;
 
@@ -129,22 +128,15 @@ int main()
     /* initialize logger */
     dp_logger_init(DP_PARENT);
 
-    /* gearman initialize */
-    if (!dp_gearman_init(&client))
-        return EXIT_FAILURE;
-
     /* global MySQL init */
     my_init();
 
     /* initialize MySQL structure */
-    if (!dp_mysql_init(&db)) {
-        gearman_client_free(client);
+    if (!dp_mysql_init(&db))
         return EXIT_FAILURE;
-    }
 
     /* connect to MySQL server */
     if (!dp_mysql_connect(db)) {
-        gearman_client_free(client);
         mysql_close(db);
         return EXIT_FAILURE;
     }
@@ -249,8 +241,9 @@ int main()
 
             /* fork worker */
             if ((pid = fork()) == 0) { /* child */
-                /* NOTE: children does not manage memory */
+                /* NOTE: children does not manage memory and free resources */
 
+                gearman_client_st *client = NULL;
                 gearman_return_t error;
                 dp_task_reply reply;
                 void *worker_result = NULL;
@@ -261,6 +254,10 @@ int main()
 
                 dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
                           queue_counter + 1, QUEUE_LIMIT, worker->task.id);
+
+                /* gearman initialize */
+                if (!dp_gearman_init(&client))
+                    return EXIT_FAILURE;
 
                 /* init mysql for worker */
                 my_init();
@@ -302,7 +299,7 @@ int main()
                              "UPDATE deferred_tasks_new SET status = 'done', result = '%s' WHERE id = %d",
                              reply.result, worker->task.id);
                 else {
-                    dp_logger(LOG_ERR, "Worker job (%d) result in NOT ok (%s)",
+                    dp_logger(LOG_ERR, "Worker job (%d) result is NOT ok (%s)",
                               worker->task.id, reply.result);
 
                     snprintf(query, QUERY_LIMIT,
@@ -347,7 +344,6 @@ int main()
         dp_status_update();
     }
 
-    gearman_client_free(client);
     mysql_close(db);
     return EXIT_SUCCESS;
 }
@@ -420,6 +416,7 @@ dp_bool dp_gearman_init(gearman_client_st **client)
                                            DP_GEARMAN_PORT)) {
         dp_logger(LOG_ERR,
                   "Gearman connection error (%d): %s",
+                  gearman_client_errno(*client),
                   gearman_client_error(*client));
         return FALSE;
     }
@@ -430,12 +427,12 @@ dp_bool dp_gearman_init(gearman_client_st **client)
 
 dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t size)
 {
-    char *str, *end;
+    const char *str = result, *end;
 
     /* initialize result */
     reply->result = EMPTY_STRING;
     reply->error = EMPTY_STRING;
-    reply->bakctrace = EMPTY_STRING;
+    reply->backtrace = EMPTY_STRING;
     reply->message = EMPTY_STRING;
     reply->status = EMPTY_STRING;
 
@@ -528,7 +525,7 @@ dp_bool dp_mysql_query(MYSQL *db, const char *query)
                               mysql_errno(db),
                               mysql_error(db));
 
-                    /* clrear state anyway */
+                    /* clear state anyway */
                     result = mysql_store_result(db);
                     mysql_free_result(result);
                     return FALSE;
