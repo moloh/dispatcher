@@ -8,6 +8,7 @@
 #include <signal.h>   /* SIGCHILD handling */
 #include <sys/wait.h> /* wait */
 #include <time.h>     /* time */
+#include <ctype.h>    /* isspace */
 
 /* other headers */
 #include <mysql/mysql.h>        /* mysql */
@@ -87,12 +88,13 @@ dp_bool dp_signal_restore (sigset_t *restore); /* restore old mask */
 dp_bool dp_gearman_init      (gearman_client_st **client);                            /* initialize gearman (logged) */
 dp_bool dp_gearman_get_reply (dp_task_reply *reply, const char *result, size_t size); /* parse gearman reply */
 
-dp_bool dp_mysql_init       (MYSQL **db);                       /* initialize MySQL (logged) */
-dp_bool dp_mysql_connect    (MYSQL *db);                        /* connect to MySQL (logged) */
-dp_bool dp_mysql_query      (MYSQL *db, const char *query);     /* execute MySQL query (logged), recover */
-dp_bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result); /* extract MySQL stored task (logged) */
-void    dp_mysql_task_free  (volatile dp_task *task);           /* free data associated with task */
-void    dp_mysql_task_clear (volatile dp_task *task);           /* clear data associated with task */
+dp_bool dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
+dp_bool dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
+dp_bool dp_mysql_query      (MYSQL *db, const char *query);            /* execute MySQL query (logged), recover */
+dp_bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result);        /* extract MySQL stored task (logged) */
+dp_bool dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract MySQL int variable (logged) */
+void    dp_mysql_task_free  (volatile dp_task *task);                  /* free data associated with task */
+void    dp_mysql_task_clear (volatile dp_task *task);                  /* clear data associated with task */
 
 void    dp_logger_init   (const char *ident);                      /* initialize logging capabilities */
 void    dp_logger        (int priority, const char *message, ...); /* log message with specific priority */
@@ -150,8 +152,8 @@ int main()
     /* main loop */
     while (TRUE) {
         time_t timestamp;
+        dp_bool is_job = FALSE;
         dp_task task;
-        size_t rows = 0;
         pid_t pid;
 
         /* extract current number of child workers */
@@ -163,50 +165,57 @@ int main()
         /* START fake loop for query "exceptions" */
         do {
             MYSQL_RES *result;
-            MYSQL_ROW row;
+            int id = -1;
 
-            /* prepare transaction */
-            if (!dp_mysql_query(db, "BEGIN"))
+            /* reset counter */
+            if (!dp_mysql_query(db, "SET @id := NULL"))
                 break;
-            dp_logger(LOG_DEBUG, "BEGIN");
 
-            /* extract new works */
+            /* update task and extract its id */
             snprintf(query, QUERY_LIMIT,
-                     "SELECT * FROM deferred_tasks_new WHERE status = 'new' AND run_after < %ld ORDER BY priority DESC LIMIT 1 FOR UPDATE",
+                     "UPDATE deferred_tasks_new SET status = 'working' "
+                     "WHERE id = "
+                     "(SELECT * FROM (SELECT id FROM deferred_tasks_new "
+                        "WHERE status = 'new' AND run_after < %ld "
+                        "ORDER BY priority DESC LIMIT 1) AS innerquery) "
+                     "AND @id := id",
                      timestamp);
             if (!dp_mysql_query(db, query))
                 break;
 
-            /* process query result */
+            /* this should always be NULL */
             result = mysql_store_result(db);
-            if (result == NULL)
-                rows = 0;
-            else {
-                rows = mysql_num_rows(result);
-                if (rows >= 1 && queue_counter < QUEUE_LIMIT)
-                    dp_mysql_get_task(&task, result);
-                mysql_free_result(result);
-            }
+            mysql_free_result(result);
 
-            dp_logger(LOG_DEBUG, "COMMIT (%d)", task.id);
+            /* extract our reply */
+            dp_mysql_query(db, "SELECT @id");
+            result = mysql_store_result(db);
+            dp_mysql_get_int(&id, result);
+            mysql_free_result(result);
 
-            /* update database */
-            if (rows >= 1 && queue_counter < QUEUE_LIMIT) {
-                snprintf(query, QUERY_LIMIT,
-                         "UPDATE deferred_tasks_new SET status = 'working' WHERE id = %d", task.id);
-                if (!dp_mysql_query(db, query))
-                    break;
-            }
-
-            if (!dp_mysql_query(db, "COMMIT"))
+            /* check if we get valid reply */
+            if (id < 0)
                 break;
-            dp_logger(LOG_DEBUG, "COMMIT");
+
+            /* extract task */
+            snprintf(query, QUERY_LIMIT,
+                     "SELECT * FROM deferred_tasks_new WHERE id = %d",
+                     id);
+            if (!dp_mysql_query(db, query))
+                break;
+
+            result = mysql_store_result(db);
+            if (!dp_mysql_get_task(&task, result))
+                dp_logger(LOG_ERR, "Failed to get job (%d) details!", id);
+            else
+                is_job = TRUE;
+            mysql_free_result(result);
+
         /* END fake loop for query "exceptions" */
         } while (FALSE);
-        dp_logger(LOG_DEBUG, "END");
 
         /* update basic counters */
-        if (rows == 0) {
+        if (!is_job) {
             sense_counter += 1;
             pending_full_counter = 0;
         } else
@@ -218,7 +227,7 @@ int main()
         }
 
         /* check if we can process job */
-        if (rows >= 1 && queue_counter >= QUEUE_LIMIT)
+        if (is_job && queue_counter >= QUEUE_LIMIT)
             pending_full_counter += 1;
 
         /* check if we are overloaded */
@@ -227,16 +236,16 @@ int main()
             pending_full_counter = 0;
         }
 
-        if (rows >= 1 && queue_counter < QUEUE_LIMIT) {
+        if (is_job && queue_counter < QUEUE_LIMIT) {
             /* find first empty entry */
             volatile dp_child *worker = dp_child_null();
+
+            /* block signals to ensure completness of worker structure */
+            dp_signal_block(&mask);
 
             /* initialize worker data */
             worker->task = task;
             worker->null = FALSE;
-
-            /* block signals to ensure completness of worker structure */
-            dp_signal_block(&mask);
 
             /* fork worker */
             if ((pid = fork()) == 0) { /* child */
@@ -253,6 +262,10 @@ int main()
                 dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
                           queue_counter + 1, QUEUE_LIMIT, worker->task.id);
 
+                /* init mysql for worker */
+                my_init();
+
+                /* erase parent connection data */
                 memset(db, 0, sizeof(MYSQL));
                 if (!dp_mysql_init(&db) ||
                     !dp_mysql_connect(db))
@@ -284,13 +297,13 @@ int main()
 
                 dp_gearman_get_reply(&reply, worker_result, worker_result_size);
 
-                if (!strcmp(reply.status, ":ok"))
+                if (!strcmp(reply.result, ":ok"))
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks_new SET status = 'done', result = '%s' WHERE id = %d",
                              reply.result, worker->task.id);
                 else {
                     dp_logger(LOG_ERR, "Worker job (%d) result in NOT ok (%s)",
-                              worker->task.id, reply.status);
+                              worker->task.id, reply.result);
 
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks_new SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
@@ -326,8 +339,7 @@ int main()
         /* NOTE: sleep is broken when we receive signal */
         /* NOTE: sleep only when no task are waiting or we have full queue */
 
-        if (rows == 0 ||
-            (rows >= 1 && queue_counter >= QUEUE_LIMIT))
+        if (!is_job || (is_job && queue_counter >= QUEUE_LIMIT))
             for (uint timeout = SLEEP_TIMEOUT; timeout > 0;)
                 timeout = sleep(timeout);
 
@@ -432,6 +444,10 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
         return FALSE;
     str += 8;
 
+    /* trim */
+    for (; *str && isspace(*str); ++str)
+        ;
+
     if ((end = strchr(str, '\n')) == NULL)
         end = str + strlen(str);
 
@@ -445,7 +461,7 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
 /* basic, logged initialization of MySQL */
 dp_bool dp_mysql_init(MYSQL **db)
 {
-    if ((*db = mysql_init(NULL)) == NULL) {
+    if ((*db = mysql_init(*db)) == NULL) {
         dp_logger(LOG_ERR, "MySQL initialization error");
         return FALSE;
     }
@@ -487,19 +503,38 @@ dp_bool dp_mysql_query(MYSQL *db, const char *query)
 
     /* execute query */
     if (mysql_query(db, query)) {
-        dp_logger(LOG_ERR, "MySQL query error (%d), recovering: %s",
-                  mysql_errno(db),
-                  mysql_error(db));
-
         switch (mysql_errno(db)) {
-            case CR_COMMANDS_OUT_OF_SYNC:  /* try to recover */
+            case CR_COMMANDS_OUT_OF_SYNC:  /* try to clear error */
+                dp_logger(LOG_ERR, "MySQL query error (%d), clearing: %s",
+                          mysql_errno(db),
+                          mysql_error(db));
+
                 result = mysql_store_result(db);
                 mysql_free_result(result);
                 return FALSE;
-            case CR_SERVER_GONE_ERROR:     /* try to reconnect */
+            case CR_SERVER_GONE_ERROR:     /* try to reconnect and rerun query */
             case CR_SERVER_LOST:
-                dp_mysql_connect(db);
-                return FALSE;
+                dp_logger(LOG_ERR, "MySQL query error (%d), recovering: %s",
+                          mysql_errno(db),
+                          mysql_error(db));
+
+                /* reconnect to server */
+                if (!dp_mysql_connect(db))
+                    return FALSE;
+
+                /* execute query, recover */
+                if (mysql_query(db, query)) {
+                    dp_logger(LOG_ERR, "MySQL query recovery error (%d): %s",
+                              mysql_errno(db),
+                              mysql_error(db));
+
+                    /* clrear state anyway */
+                    result = mysql_store_result(db);
+                    mysql_free_result(result);
+                    return FALSE;
+                }
+
+                return TRUE;
             default:
                 return FALSE;
         }
@@ -519,6 +554,9 @@ dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
 
     /* init task structure */
     memset(task, 0, sizeof(dp_task));
+
+    if (result == NULL)
+        return FALSE;
 
     /* fetch single result */
     row = mysql_fetch_row(result);
@@ -560,6 +598,24 @@ dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
         task->description = dp_strdup(task->description);
     if (task->status)
         task->status = dp_strdup(task->status);
+
+    return TRUE;
+}
+
+dp_bool dp_mysql_get_int(int *value, MYSQL_RES *result)
+{
+    MYSQL_ROW row;
+
+    if (result == NULL)
+        return FALSE;
+
+    /* fetch single result */
+    row = mysql_fetch_row(result);
+
+    /* validate row */
+    if (mysql_num_rows(result) == 1 && mysql_num_fields(result) == 1)
+        if (row[0] != NULL)
+            sscanf(row[0], "%d", value);
 
     return TRUE;
 }
