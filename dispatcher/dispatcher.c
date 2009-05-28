@@ -163,12 +163,14 @@ int main()
         /* If we are already at maximum fork capacity, we shouldn't
          * grab another task, we should just sleep for a bit
          */
-        if (queue_counter < QUEUE_LIMIT) {
+        if (queue_counter >= QUEUE_LIMIT) {
             /* This sleep call may be interrupted by a signal, but the
              * only signals we care about are when a child is finished,
              * at which point, we want to try another task anyway.
              */
             sleep(SLEEP_TIMEOUT);
+            /* update status of workers */
+            dp_status_update();
             continue;
         }
 
