@@ -45,9 +45,6 @@ typedef _Bool dp_bool;
 #define TRUE  (_Bool)1
 #define FALSE (_Bool)0
 
-/* empty string */
-#define EMPTY_STRING ""
-
 #if 0
 #undef LOG_WARNING
 #undef LOG_DEBUG
@@ -70,10 +67,8 @@ typedef struct dp_task {
 /* child definition structure */
 typedef struct dp_child {
     pid_t pid;      /* pid of child */
-    int status;     /* exit status of child */
     dp_task task;   /* task associated with child */
     dp_bool null;   /* indicate empty entry */
-    dp_bool update; /* indicate status update */
 } dp_child;
 
 /* task reply definition structure */
@@ -85,9 +80,12 @@ typedef struct dp_task_reply {
     char *message;
 } dp_task_reply;
 
-/* global child counter */
-volatile int       child_counter = 0;         /* current number of running childern */
-volatile dp_child  child_status[QUEUE_LIMIT]; /* array of child status */
+/* global signal flag */
+volatile sig_atomic_t child_flag = FALSE;
+
+/* global status variables */
+int      child_counter = 0;         /* current number of running childern */
+dp_child child_status[QUEUE_LIMIT]; /* array of child status */
 
 /* internal functions */
 dp_bool dp_signal_init    ();                  /* initialize signal handling (logged) */
@@ -96,27 +94,29 @@ dp_bool dp_signal_restore (sigset_t *restore); /* restore old mask */
 
 dp_bool dp_gearman_init      (gearman_client_st **client);                            /* initialize gearman (logged) */
 dp_bool dp_gearman_get_reply (dp_task_reply *reply, const char *result, size_t size); /* parse gearman reply */
+dp_bool dp_gearman_get_value (dp_task_reply *reply, const char *name, char *value);   /* assign name value to reply */
 
 dp_bool dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
 dp_bool dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
 dp_bool dp_mysql_query      (MYSQL *db, const char *query);            /* execute MySQL query (logged), recover */
 dp_bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result);        /* extract MySQL stored task (logged) */
 dp_bool dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract MySQL int variable (logged) */
-void    dp_mysql_task_free  (volatile dp_task *task);                  /* free data associated with task */
-void    dp_mysql_task_clear (volatile dp_task *task);                  /* clear data associated with task */
+void    dp_mysql_task_free  (dp_task *task);                           /* free data associated with task */
+void    dp_mysql_task_clear (dp_task *task);                           /* clear data associated with task */
 
-void    dp_logger_init   (const char *ident);                      /* initialize logging capabilities */
-void    dp_logger        (int priority, const char *message, ...); /* log message with specific priority */
-int     dp_asprintf      (char **strp, const char *format, ...);   /* portability wrapper, allocated sprintf */
-char   *dp_strdup        (const char *str);                        /* dup string helper */
-char   *dp_strndup       (const char *str, size_t length);         /* sized dup string helper */
-char   *dp_strcat        (const char *str, ...);                   /* concatenate string helper */
-void    dp_sigchld       (int signal);                             /* SIGCHLD handler */
-void    dp_status_update ();                                       /* process child_status table */
+void    dp_logger_init   (const char *ident);                                  /* initialize logging capabilities */
+void    dp_logger        (int priority, const char *message, ...);             /* log message with specific priority */
+int     dp_asprintf      (char **strp, const char *format, ...);               /* portability wrapper, allocated sprintf */
+char   *dp_strdup        (const char *str);                                    /* dup string helper */
+char   *dp_strudup       (const char *str, size_t length);                     /* sized dup string helper */
+char   *dp_struchr       (const char *str, size_t length, char character);     /* sized strchr string helper */
+char   *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
+char   *dp_strcat        (const char *str, ...);                               /* concatenate string helper */
+void    dp_sigchld       (int signal);                                         /* SIGCHLD handler */
+void    dp_status_update ();                                                   /* process child_status table */
 
-volatile dp_child *dp_child_null ();           /* find first null entry in child_status array */
-volatile dp_child *dp_child_id   (int id);     /* find child with id in child_status array */
-volatile dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */
+dp_child *dp_child_null ();           /* find first null entry in child_status array */
+dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */
 
 int main()
 {
@@ -169,8 +169,13 @@ int main()
              * at which point, we want to try another task anyway.
              */
             sleep(SLEEP_TIMEOUT);
+
             /* update status of workers */
             dp_status_update();
+
+            /* update number of workers */
+            queue_counter = child_counter;
+
             continue;
         }
 
@@ -253,10 +258,7 @@ int main()
 
         if (is_job && queue_counter < QUEUE_LIMIT) {
             /* find first empty entry */
-            volatile dp_child *worker = dp_child_null();
-
-            /* block signals to ensure completness of worker structure */
-            dp_signal_block(&mask);
+            dp_child *worker = dp_child_null();
 
             /* initialize worker data */
             worker->task = task;
@@ -264,7 +266,7 @@ int main()
 
             /* fork worker */
             if ((pid = fork()) == 0) { /* child */
-                /* NOTE: children does not manage memory and free resources */
+                /* NOTE: children does not manage memory or free resources */
 
                 gearman_client_st *client = NULL;
                 gearman_return_t error;
@@ -282,6 +284,20 @@ int main()
                 if (!dp_gearman_init(&client))
                     return EXIT_FAILURE;
 
+                /* process job */
+                worker_result = gearman_client_do(client,
+                                                  worker->task.type,
+                                                  NULL,
+                                                  worker->task.description,
+                                                  strlen(worker->task.description),
+                                                  &worker_result_size,
+                                                  &error);
+
+                /* NOTE: we initialize mysql only after gearman finished work
+                 *       this prevents timeouts from mysql connection but may
+                 *       prove problematic
+                 */
+
                 /* init mysql for worker */
                 my_init();
 
@@ -290,14 +306,6 @@ int main()
                 if (!dp_mysql_init(&db) ||
                     !dp_mysql_connect(db))
                     return EXIT_FAILURE;
-
-                worker_result = gearman_client_do(client,
-                                                  worker->task.type,
-                                                  NULL,
-                                                  worker->task.description,
-                                                  strlen(worker->task.description),
-                                                  &worker_result_size,
-                                                  &error);
 
                 /* error executing work, retry */
                 if (error) {
@@ -315,19 +323,26 @@ int main()
                     return error;
                 }
 
+                /* NOTE: reply may contain non-escaped characters */
+
+                /* process reply from gearman */
                 dp_gearman_get_reply(&reply, worker_result, worker_result_size);
 
-                if (!strcmp(reply.result, ":ok"))
+                /* prepare query to database */
+                if (reply.status != NULL &&
+                    !strcmp(reply.status, ":ok")) {
+
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks_new SET status = 'done', result = '%s' WHERE id = %d",
-                             reply.result, worker->task.id);
-                else {
+                             reply.status, worker->task.id);
+
+                } else {
                     dp_logger(LOG_ERR, "Worker job (%d) result is NOT ok (%s)",
-                              worker->task.id, reply.result);
+                              worker->task.id, reply.status);
 
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE deferred_tasks_new SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
-                             timestamp + TIMESTAMP_DELAY, reply.result, worker->task.id);
+                             timestamp + TIMESTAMP_DELAY, reply.status, worker->task.id);
                 }
 
                 /* execute query */
@@ -350,9 +365,6 @@ int main()
                 /* increase task count */
                 child_counter += 1;
             }
-
-            /* restore signals */
-            dp_signal_restore(&mask);
         }
 
         /* wait for next iteration */
@@ -380,9 +392,7 @@ dp_bool dp_signal_init()
 
         /* clear other info */
         child_status[i].pid = 0;
-        child_status[i].status = 0;
         child_status[i].null = TRUE;
-        child_status[i].update = FALSE;
     }
 
     /* setup singals */
@@ -451,29 +461,88 @@ dp_bool dp_gearman_init(gearman_client_st **client)
 dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t size)
 {
     const char *str = result, *end;
+    const char *last = result + strlen(result);
+    char *name = NULL;
 
-    /* initialize result */
-    reply->result = EMPTY_STRING;
-    reply->error = EMPTY_STRING;
-    reply->backtrace = EMPTY_STRING;
-    reply->message = EMPTY_STRING;
-    reply->status = EMPTY_STRING;
+    /* initialize */
+    memset(reply, 0, sizeof(dp_task_reply));
 
-    /* quick hack to get status */
-    if ((str = strstr(result, ":status:")) == NULL)
+    /* import values */
+    for (end = str; end < last; ++end) {
+        if (*end == ':') {
+            /* check if we have previous data to save */
+            if (name != NULL) {
+                char *value = NULL;
+
+                /* check if value ends with end line */
+                if (end > str && *(end - 1) == '\n')
+                    value = dp_strudup(str, end - str - 1);
+                else
+                    value = dp_strudup(str, end - str);
+
+                /* import value, free if fail */
+                if (!dp_gearman_get_value(reply, name, value))
+                    free(value);
+
+                /* clear name */
+                free(name);
+                name = NULL;
+            }
+
+            /* update start position */
+            str = end;
+
+            /* find terminating ': ' */
+            if ((end = dp_strustr(++end, last - end, ": ")) == NULL) {
+                dp_logger(LOG_ERR, "Invalid Gearman reply string");
+                return FALSE;
+            }
+
+            /* copy name part ":[^:]*:" */
+            name = dp_strudup(str, ++end - str);
+
+            /* update position */
+            str = ++end;
+        }
+
+        /* go to the end of line */
+        for (; end < last; ++end)
+            if (*end == '\n')
+                break;
+    }
+
+    if (name != NULL) {
+        char *value = dp_strudup(str, end - str);
+        if (!dp_gearman_get_value(reply, name, value))
+            free(value);
+        free(name);
+    }
+
+    return FALSE;
+}
+
+dp_bool dp_gearman_get_value (dp_task_reply *reply, const char *name, char *value)
+{
+    if (name == NULL)
         return FALSE;
-    str += 8;
 
-    /* trim */
-    for (; *str && isspace(*str); ++str)
-        ;
-
-    if ((end = strchr(str, '\n')) == NULL)
-        end = str + strlen(str);
-
-    reply->result = dp_strndup(str, end - str);
-
-    /* TODO: escape string for MySQL */
+    if (!strcmp(name, ":backtrace:")) {
+        if (reply->backtrace) free(reply->backtrace);
+        reply->backtrace = value;
+    } else if (!strcmp(name, ":error:")) {
+        if (reply->error) free(reply->error);
+        reply->error = value;
+    } else if (!strcmp(name, ":status:")) {
+        if (reply->status) free(reply->status);
+        reply->status = value;
+    } else if (!strcmp(name, ":result:")) {
+        if (reply->result) free(reply->result);
+        reply->result = value;
+    } else if (!strcmp(name, ":message:")) {
+        if (reply->message) free(reply->message);
+        reply->message = value;
+    } else
+        return FALSE;
 
     return TRUE;
 }
@@ -640,7 +709,7 @@ dp_bool dp_mysql_get_int(int *value, MYSQL_RES *result)
     return TRUE;
 }
 
-void dp_mysql_task_free(volatile dp_task *task)
+void dp_mysql_task_free(dp_task *task)
 {
     if (task != NULL) {
         free(task->type);
@@ -649,7 +718,7 @@ void dp_mysql_task_free(volatile dp_task *task)
     }
 }
 
-void dp_mysql_task_clear(volatile dp_task *task)
+void dp_mysql_task_clear(dp_task *task)
 {
     task->id = 0;
     task->priority = 0;
@@ -678,7 +747,7 @@ char *dp_strdup(const char *str)
     return dup;
 }
 
-char *dp_strndup(const char *str, size_t length)
+char *dp_strudup(const char *str, size_t length)
 {
     char *dup;
 
@@ -690,6 +759,42 @@ char *dp_strndup(const char *str, size_t length)
     dup[length] = '\0';
 
     return dup;
+}
+
+char *dp_struchr(const char *str, size_t length, char character)
+{
+    for (size_t pos = 0; pos < length; ++pos)
+        if (str[pos] == character)
+            return (char *)str + pos;
+    return NULL;
+}
+
+char *dp_strustr(const char *str, size_t length, const char *locate)
+{
+    register size_t pos = 0, x;
+
+    /* check if we have string to locate */
+    if (locate == NULL || !*locate)
+        return (char *)str;
+
+    for (; pos < length; ++pos) {
+
+        /* check first character */
+        if (*locate == str[pos]) {
+
+            /* validate rest of string */
+            for (x = 1; pos + x < length; ++x)
+                if (locate[x] != str[pos + x])
+                    break;
+
+            /* check if we found locate */
+            if (!locate[x])
+                return (char *)str + pos;
+        }
+    }
+
+    /* not found */
+    return NULL;
 }
 
 char *dp_strcat(const char *str, ...)
@@ -786,50 +891,51 @@ retval:
 
 void dp_sigchld(int signal)
 {
-    volatile dp_child *worker = NULL;
-    int status;
-    pid_t pid;
-
-    /* check if there are any children waiting */
-    /* NOTE: errors are discarded */
-    while ((pid = wait(&status)) > 0) {
-        /* update status if possible */
-        if ((worker = dp_child_pid(pid)) != NULL) {
-            worker->status = status;
-            worker->update = TRUE;
-        }
-    }
+    /* update flag to note pendig processing */
+    child_flag = TRUE;
 }
 
 void dp_status_update()
 {
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i) {
+    int status;
+    pid_t pid;
+
+    /* check if we have pending events */
+    if (!child_flag)
+        return;
+
+    while ((pid = waitpid(0, &status, WNOHANG)) > 0) {
+        dp_child *worker = NULL;
         dp_bool is_end = FALSE;
-        sigset_t mask;
 
-        /* check if entry contain child and is updated */
-        if (child_status[i].null || !child_status[i].update)
+        /* NOTE: we update flag only after successfull retreival of reaped
+         * process
+         */
+
+        /* update flag */
+        child_flag = FALSE;
+
+        /* extract information about specific child */
+        if ((worker = dp_child_pid(pid)) == NULL) {
+            dp_logger(LOG_ERR, "Unknown child pid (%d)!",
+                      pid);
             continue;
+        }
 
-        /* critical section, block signals */
-        dp_signal_block(&mask);
-
-        /* cache worker pointer */
-        volatile dp_child *worker = &child_status[i];
 
         /* check if normal exit */
-        if (WIFEXITED(worker->status)) {
+        if (WIFEXITED(status)) {
             child_counter -= 1;
             is_end = TRUE;
 
-            if (WEXITSTATUS(worker->status) != EXIT_SUCCESS)
+            if (WEXITSTATUS(status) != EXIT_SUCCESS)
                 dp_logger(LOG_ERR,
                           "Child worker (%d) invalid exit (%d)",
-                          worker->pid, WEXITSTATUS(worker->status));
+                          worker->pid, WEXITSTATUS(status));
 
         /* check type of signal */
-        } else if (WIFSIGNALED(worker->status)) {
-            if (WTERMSIG(worker->status) || WCOREDUMP(worker->status)) {
+        } else if (WIFSIGNALED(status)) {
+            if (WTERMSIG(status) || WCOREDUMP(status)) {
                 dp_logger(LOG_ERR,
                           "Child worker (%d) terminated",
                           worker->pid);
@@ -844,9 +950,6 @@ void dp_status_update()
                       "Invalid child (%d) worker state",
                       worker->pid);
 
-        /* mark as updated */
-        worker->update = FALSE;
-
         if (is_end) {
             /* clear task data */
             dp_mysql_task_free(&worker->task);
@@ -854,16 +957,12 @@ void dp_status_update()
 
             /* clear worker data */
             worker->pid = 0;
-            worker->status = 0;
             worker->null = TRUE;
         }
-
-        /* critical section ends, unblock signals */
-        dp_signal_restore(&mask);
     }
 }
 
-volatile dp_child *dp_child_null()
+dp_child *dp_child_null()
 {
     for (size_t i = 0; i < QUEUE_LIMIT; ++i)
         if (child_status[i].null)
@@ -871,16 +970,7 @@ volatile dp_child *dp_child_null()
     return NULL;
 }
 
-volatile dp_child *dp_child_task_id(int id)
-{
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i)
-        if (!child_status[i].null)
-            if (child_status[i].task.id == id)
-                return &child_status[i];
-    return NULL;
-}
-
-volatile dp_child *dp_child_pid(pid_t pid)
+dp_child *dp_child_pid(pid_t pid)
 {
     for (size_t i = 0; i < QUEUE_LIMIT; ++i)
         if (!child_status[i].null)
