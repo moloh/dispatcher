@@ -48,6 +48,15 @@ typedef _Bool dp_bool;
 /* empty string */
 #define EMPTY_STRING ""
 
+#if 0
+#undef LOG_WARNING
+#undef LOG_DEBUG
+#undef LOG_INFO
+#endif
+#define LOG_WARNING LOG_ERR
+#define LOG_DEBUG LOG_ERR
+#define LOG_INFO LOG_ERR
+
 /* task definition structure */
 typedef struct dp_task {
     int id;
@@ -150,6 +159,18 @@ int main()
 
         /* extract current number of child workers */
         queue_counter = child_counter;
+
+        /* If we are already at maximum fork capacity, we shouldn't
+         * grab another task, we should just sleep for a bit
+         */
+        if (queue_counter < QUEUE_LIMIT) {
+            /* This sleep call may be interrupted by a signal, but the
+             * only signals we care about are when a child is finished,
+             * at which point, we want to try another task anyway.
+             */
+            sleep(SLEEP_TIMEOUT);
+            continue;
+        }
 
         /* get timestamp */
         timestamp = time(NULL);
@@ -313,7 +334,7 @@ int main()
 
                 dp_logger(LOG_DEBUG, "Worker finished");
                 return EXIT_SUCCESS;
-            }
+            } 
 
             /* detect fork error */
             /* fork failed */
