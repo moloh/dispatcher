@@ -52,10 +52,10 @@ typedef _Bool dp_bool;
 #undef LOG_WARNING
 #undef LOG_DEBUG
 #undef LOG_INFO
-#endif
 #define LOG_WARNING LOG_ERR
 #define LOG_DEBUG LOG_ERR
 #define LOG_INFO LOG_ERR
+#endif
 
 /* task definition structure */
 typedef struct dp_task {
