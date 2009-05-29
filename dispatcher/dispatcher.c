@@ -113,14 +113,14 @@ char   *dp_struchr       (const char *str, size_t length, char character);     /
 char   *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
 char   *dp_strcat        (const char *str, ...);                               /* concatenate string helper */
 void    dp_sigchld       (int signal);                                         /* SIGCHLD handler */
-void    dp_status_update ();                                                   /* process child_status table */
+void    dp_status_update (size_t *queue_counter);                              /* process child_status table */
 
 dp_child *dp_child_null ();           /* find first null entry in child_status array */
 dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */
 
 int main()
 {
-    size_t queue_counter = 0;             /* number of jobs in queue */
+    size_t queue_counter = child_counter; /* number of jobs in queue */
     size_t sense_counter = 0;             /* number of empty iterations */
     char query[QUERY_LIMIT];              /* query buffer */
     MYSQL *db = NULL;
@@ -152,11 +152,11 @@ int main()
         dp_task task;
         pid_t pid;
 
-        /* extract current number of child workers */
-        queue_counter = child_counter;
-
         /* If we are already at maximum fork capacity, we shouldn't
          * grab another task, we should just sleep for a bit
+         *
+         * NOTE: this prevents automatic update of task in database, even
+         * when there is no space in queue
          */
         if (queue_counter >= QUEUE_LIMIT) {
             /* This sleep call may be interrupted by a signal, but the
@@ -165,11 +165,8 @@ int main()
              */
             sleep(SLEEP_TIMEOUT);
 
-            /* update status of workers */
-            dp_status_update();
-
-            /* update number of workers */
-            queue_counter = child_counter;
+            /* update status of workers and get number of workers */
+            dp_status_update(&queue_counter);
 
             continue;
         }
@@ -182,11 +179,17 @@ int main()
             MYSQL_RES *result;
             int id = -1;
 
+            /* make double sure that there is space in queue for task,
+             * we don't want to make it 'working' and do nothing later
+             */
+            if (queue_counter >= QUERY_LIMIT)
+                break;
+
             /* reset counter */
             if (!dp_mysql_query(db, "SET @id := NULL"))
                 break;
 
-            /* update task and extract its id */
+            /* update task to 'working' state and extract its id */
             snprintf(query, QUERY_LIMIT,
                      "UPDATE "DP_MYSQL_TABLE" SET status = 'working' "
                      "WHERE id = "
@@ -208,7 +211,9 @@ int main()
             dp_mysql_get_int(&id, result);
             mysql_free_result(result);
 
-            /* check if we get valid reply */
+            /* check if we get valid reply
+             * NOTE: we hit this when there is nothing to do
+             */
             if (id < 0)
                 break;
 
@@ -230,9 +235,9 @@ int main()
         } while (FALSE);
 
         /* update basic counters */
-        if (!is_job) {
+        if (!is_job)
             sense_counter += 1;
-        } else
+        else
             sense_counter = 0;
 
         if (sense_counter >= SENSE_LIMIT) {
@@ -240,9 +245,23 @@ int main()
             sense_counter = 0;
         }
 
-        if (is_job && queue_counter < QUEUE_LIMIT) {
+        /* START fake loop for dispatching "exceptions" */
+        do {
+            dp_child *worker;
+
+            /* check if we have free spots
+             * NOTE: currently is there is job we get here only if there is
+             * free spot in queue, but check of queue size anyway
+             */
+            if (!is_job || queue_counter >= QUEUE_LIMIT)
+                break;
+
             /* find first empty entry */
-            dp_child *worker = dp_child_null();
+            if ((worker = dp_child_null()) == NULL) {
+                dp_logger(LOG_ERR, "Inconsistence in dispatching job (%d): No more free workers",
+                          task.id);
+                break;
+            }
 
             /* initialize worker data */
             worker->task = task;
@@ -358,21 +377,23 @@ int main()
             } else {
                 /* update worker status */
                 worker->pid = pid;
+
                 /* increase task count */
                 child_counter += 1;
+                queue_counter += 1;
             }
-        }
+        /* END fake loop for dispatching "exceptions" */
+        } while (FALSE);
 
-        /* wait for next iteration */
-        /* NOTE: sleep terminates when we receive signal */
-        /* NOTE: sleep only when no task are waiting or we have full queue */
-
+        /* wait for next iteration
+         * NOTE: sleep terminates when we receive signal
+         * NOTE: sleep only when no task are waiting or we have full queue
+         */
         if (!is_job || (is_job && queue_counter >= QUEUE_LIMIT))
-            for (uint timeout = SLEEP_TIMEOUT; timeout > 0;)
-                timeout = sleep(timeout);
+            sleep(SLEEP_TIMEOUT);
 
-        /* update status of workers */
-        dp_status_update();
+        /* update status of workers and get number of running workers */
+        dp_status_update(&queue_counter);
     }
 
     mysql_close(db);
@@ -897,10 +918,14 @@ void dp_sigchld(int signal)
     child_flag = TRUE;
 }
 
-void dp_status_update()
+void dp_status_update(size_t *queue_counter)
 {
     int status;
     pid_t pid;
+
+    /* update queue size if needed */
+    if (queue_counter != NULL)
+        *queue_counter = child_counter;
 
     /* check if we have pending events */
     if (!child_flag)
@@ -962,6 +987,11 @@ void dp_status_update()
             worker->null = TRUE;
         }
     }
+
+    /* validate size of queue */
+    if (child_counter < 0)
+        dp_logger(LOG_ERR, "Invalid queue size (%d)",
+                  child_counter);
 }
 
 dp_child *dp_child_null()
