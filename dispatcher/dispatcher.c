@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdbool.h>  /* _Bool */
 #include <unistd.h>   /* sleep, fork */
-#include <signal.h>   /* SIGCHILD handling */
+#include <signal.h>   /* SIGCHLD handling */
 #include <sys/wait.h> /* wait */
 #include <time.h>     /* time */
 #include <ctype.h>    /* isspace */
@@ -20,7 +20,7 @@
 #define PENDING_FULL_LIMIT 60    /* log overload */
 #define QUEUE_LIMIT        10    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        4096  /* maximum MySQL query length */
-#define BUFFER_LIMIT       1024  /* maximul length of internal buffers */
+#define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
 #define SLEEP_TIMEOUT      1     /* main loop timeout */
 #define TIMESTAMP_DELAY    5*60  /* task execution delay */
@@ -84,7 +84,7 @@ typedef struct dp_task_reply {
 volatile sig_atomic_t child_flag = FALSE;
 
 /* global status variables */
-int      child_counter = 0;         /* current number of running childern */
+int      child_counter = 0;         /* current number of running children */
 dp_child child_status[QUEUE_LIMIT]; /* array of child status */
 
 /* internal functions */
@@ -266,7 +266,7 @@ int main()
 
             /* fork worker */
             if ((pid = fork()) == 0) { /* child */
-                /* NOTE: children does not manage memory or free resources */
+                /* NOTE: child does not manage memory or free resources */
 
                 gearman_client_st *client = NULL;
                 gearman_return_t error;
@@ -295,7 +295,9 @@ int main()
 
                 /* NOTE: we initialize mysql only after gearman finished work
                  *       this prevents timeouts from mysql connection but may
-                 *       prove problematic
+                 *       prove problematic.  The task is in 'working' status,
+                 *       and when the task completes (or fails) and if we
+                 *       cannot connect to MySQL, we can't update the status.
                  */
 
                 /* init mysql for worker */
@@ -351,14 +353,14 @@ int main()
 
                 dp_logger(LOG_DEBUG, "Worker finished");
                 return EXIT_SUCCESS;
-            } 
+            }
 
             /* detect fork error */
             /* fork failed */
             if (pid < 0) {
                 /* TODO: update database */
                 dp_logger(LOG_ERR, "Fork failed!");
-            /* fork successfull */
+            /* fork successful */
             } else {
                 /* update worker status */
                 worker->pid = pid;
@@ -368,7 +370,7 @@ int main()
         }
 
         /* wait for next iteration */
-        /* NOTE: sleep is broken when we receive signal */
+        /* NOTE: sleep terminates when we receive signal */
         /* NOTE: sleep only when no task are waiting or we have full queue */
 
         if (!is_job || (is_job && queue_counter >= QUEUE_LIMIT))
@@ -832,7 +834,7 @@ char *dp_strcat(const char *str, ...)
             *cat = *item;
     va_end(args);
 
-    /* finnalize string */
+    /* finalize string */
     *cat = '\0';
 
     /* return string */
@@ -891,7 +893,7 @@ retval:
 
 void dp_sigchld(int signal)
 {
-    /* update flag to note pendig processing */
+    /* update flag to note pending processing */
     child_flag = TRUE;
 }
 
@@ -908,7 +910,7 @@ void dp_status_update()
         dp_child *worker = NULL;
         dp_bool is_end = FALSE;
 
-        /* NOTE: we update flag only after successfull retreival of reaped
+        /* NOTE: we update flag only after successful retrieval of reaped
          * process
          */
 
