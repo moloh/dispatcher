@@ -34,6 +34,7 @@
 #define DP_MYSQL_PASSWD "Ohio"
 #define DP_MYSQL_DB     "processqueue_dev"
 #define DP_MYSQL_PORT   0
+#define DP_MYSQL_TABLE  "deferred_tasks_new"
 
 /* gearman server info */
 #define DP_GEARMAN_HOST "192.168.10.51"
@@ -121,21 +122,17 @@ int main()
 {
     size_t queue_counter = 0;             /* number of jobs in queue */
     size_t sense_counter = 0;             /* number of empty iterations */
-    char query[QUERY_LIMIT]; /*, *aquery; */  /* query buffer */
+    char query[QUERY_LIMIT];              /* query buffer */
     MYSQL *db = NULL;
-    sigset_t mask;
 
-    /* initializa singal processing */
+    /* initialize signal processing */
     if (!dp_signal_init())
         return EXIT_FAILURE;
-
-    /* initialize temporary mask */
-    sigprocmask(0, NULL, &mask);
 
     /* initialize logger */
     dp_logger_init(DP_PARENT);
 
-    /* global MySQL init */
+    /* global MySQL initialize */
     my_init();
 
     /* initialize MySQL structure */
@@ -191,9 +188,9 @@ int main()
 
             /* update task and extract its id */
             snprintf(query, QUERY_LIMIT,
-                     "UPDATE deferred_tasks_new SET status = 'working' "
+                     "UPDATE "DP_MYSQL_TABLE" SET status = 'working' "
                      "WHERE id = "
-                     "(SELECT * FROM (SELECT id FROM deferred_tasks_new "
+                     "(SELECT * FROM (SELECT id FROM "DP_MYSQL_TABLE" "
                         "WHERE status = 'new' AND run_after < %ld "
                         "ORDER BY priority DESC LIMIT 1) AS innerquery) "
                      "AND @id := id",
@@ -217,7 +214,7 @@ int main()
 
             /* extract task */
             snprintf(query, QUERY_LIMIT,
-                     "SELECT * FROM deferred_tasks_new WHERE id = %d",
+                     "SELECT * FROM "DP_MYSQL_TABLE" WHERE id = %d",
                      id);
             if (!dp_mysql_query(db, query))
                 break;
@@ -280,6 +277,9 @@ int main()
                                                   &worker_result_size,
                                                   &error);
 
+                /* get result timestamp */
+                timestamp = time(NULL);
+
                 /* NOTE: we initialize mysql only after gearman finished work
                  *       this prevents timeouts from mysql connection but may
                  *       prove problematic.  The task is in 'working' status,
@@ -287,7 +287,7 @@ int main()
                  *       cannot connect to MySQL, we can't update the status.
                  */
 
-                /* init mysql for worker */
+                /* initialize mysql for worker */
                 my_init();
 
                 /* erase parent connection data */
@@ -296,6 +296,7 @@ int main()
                     !dp_mysql_connect(db))
                     return EXIT_FAILURE;
 
+
                 /* error executing work, retry */
                 if (error) {
                     dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
@@ -303,7 +304,9 @@ int main()
 
                     /* prepare query */
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks_new SET status = 'new', result = '' WHERE id = %d",
+                             "UPDATE "DP_MYSQL_TABLE" "
+                             "SET status = 'new', result = '' "
+                             "WHERE id = %d",
                              worker->task.id);
 
                     /* execute query */
@@ -322,15 +325,19 @@ int main()
                     !strcmp(reply.status, ":ok")) {
 
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks_new SET status = 'done', result = '%s' WHERE id = %d",
-                             reply.status, worker->task.id);
+                             "UPDATE "DP_MYSQL_TABLE" "
+                             "SET status = 'done', result = '%s', result_timestamp = '%ld' "
+                             "WHERE id = %d",
+                             reply.status, timestamp, worker->task.id);
 
                 } else {
                     dp_logger(LOG_ERR, "Worker job (%d) result is NOT ok (%s)",
                               worker->task.id, reply.status);
 
                     snprintf(query, QUERY_LIMIT,
-                             "UPDATE deferred_tasks_new SET status = 'new', run_after = '%ld', result = '%s' WHERE id = %d",
+                             "UPDATE "DP_MYSQL_TABLE" "
+                             "SET status = 'new', run_after = '%ld', result = '%s' "
+                             "WHERE id = %d",
                              timestamp + TIMESTAMP_DELAY, reply.status, worker->task.id);
                 }
 
@@ -384,7 +391,7 @@ dp_bool dp_signal_init()
         child_status[i].null = TRUE;
     }
 
-    /* setup singals */
+    /* setup signals */
     struct sigaction action;
     sigset_t block;
 
@@ -447,6 +454,10 @@ dp_bool dp_gearman_init(gearman_client_st **client)
     return TRUE;
 }
 
+/* TODO: maybe extend it (handle first word (hash, list) correctly, discard end lines and white spaces */
+/* TODO: add escaping of reply fields */
+
+/* simple "parser" for YAML reply from gearman */
 dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t size)
 {
     const char *str = result, *end;
@@ -510,6 +521,7 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
     return FALSE;
 }
 
+/* set single "hash" value from gearman parser */
 dp_bool dp_gearman_get_value (dp_task_reply *reply, const char *name, char *value)
 {
     if (name == NULL)
@@ -621,8 +633,9 @@ dp_bool dp_mysql_query(MYSQL *db, const char *query)
     return TRUE;
 }
 
+/* TODO: error checking for mysql_fetch_row */
+
 /* convert single row into typed task */
-/* TODO: error chedp_mysql_task_clearcking for mysql_fetch_row */
 dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
 {
     char buffer[BUFFER_LIMIT];
