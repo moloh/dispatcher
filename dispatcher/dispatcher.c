@@ -29,7 +29,7 @@
 #define DP_CHILD        "worker"
 
 /* mysql server info */
-#define DP_MYSQL_HOST   "192.168.10.89"
+#define DP_MYSQL_HOST   "devdba"
 #define DP_MYSQL_USER   "root"
 #define DP_MYSQL_PASSWD "Ohio"
 #define DP_MYSQL_DB     "processqueue_dev"
@@ -37,7 +37,7 @@
 #define DP_MYSQL_TABLE  "deferred_tasks_new"
 
 /* gearman server info */
-#define DP_GEARMAN_HOST "192.168.10.51"
+#define DP_GEARMAN_HOST "dev"
 #define DP_GEARMAN_PORT 7003
 
 /* internal bool */
