@@ -17,7 +17,6 @@
 #include <syslog.h>             /* system log */
 
 /* global defines */
-#define PENDING_FULL_LIMIT 60    /* log overload */
 #define QUEUE_LIMIT        10    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        4096  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
@@ -120,7 +119,6 @@ dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status arr
 
 int main()
 {
-    size_t pending_full_counter = 0;      /* count when queue is full and there are still pending tasks */
     size_t queue_counter = 0;             /* number of jobs in queue */
     size_t sense_counter = 0;             /* number of empty iterations */
     char query[QUERY_LIMIT]; /*, *aquery; */  /* query buffer */
@@ -237,23 +235,12 @@ int main()
         /* update basic counters */
         if (!is_job) {
             sense_counter += 1;
-            pending_full_counter = 0;
         } else
             sense_counter = 0;
 
         if (sense_counter >= SENSE_LIMIT) {
             dp_logger(LOG_NOTICE, "(%d/%d) ...", queue_counter, QUEUE_LIMIT);
             sense_counter = 0;
-        }
-
-        /* check if we can process job */
-        if (is_job && queue_counter >= QUEUE_LIMIT)
-            pending_full_counter += 1;
-
-        /* check if we are overloaded */
-        if (pending_full_counter >= PENDING_FULL_LIMIT) {
-            dp_logger(LOG_WARNING, "KNOWN ISSUE NEX-1376: PPQ may be overloaded");
-            pending_full_counter = 0;
         }
 
         if (is_job && queue_counter < QUEUE_LIMIT) {
