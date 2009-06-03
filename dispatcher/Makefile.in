@@ -13,13 +13,16 @@ GEARMAN_CFLAGS = $(shell PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig pkg-config gear
 GEARMAN_LDFLAGS = $(shell PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig pkg-config gearmand --libs)
 
 SOURCE = dispatcher.c
+HEADER = dispatcher.h
 OBJECT = dispatcher.o
 
 # setup final compiler flags
 CFLAGS_REAL = $(DEFINES) $(CFLAGS) $(MYSQL_CFLAGS) $(GEARMAN_CFLAGS)
 LDFLAGS_REAL = $(LDFLAGS) $(MYSQL_LDFLAGS) $(GEARMAN_LDFLAGS)
 
-.c.o:
+all: dispatcher
+
+$(OBJECT): $(SOURCE) $(HEADER)
 	$(CC) $(CFLAGS_REAL) -c $*.c -o $*.o
 
 dispatcher: $(OBJECT)
@@ -31,8 +34,6 @@ clean:
 distclean: clean
 	rm -f config.log config.status config.h configure Makefile
 	rm -rf autom4te.cache .deps
-
-all: dispatcher
 
 install:
 	$(INSTALL) -m 755 dispatcher $(PREFIX)/bin
