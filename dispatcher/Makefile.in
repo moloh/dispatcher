@@ -1,16 +1,12 @@
-# we have to use gnu gnu99 (not c99)
-# most headers are not compatible
-
 # basic variables, hack rpath for /nexopia runtime
-PREFIX = /nexopia
-CC = $(shell which gcc)
+PREFIX = @prefix@
+CC = @CC@
 INSTALL = $(shell which install)
-CFLAGS = -std=gnu99 -g
-LDFLAGS = -Wl,-rpath=$(PREFIX)/lib
+CFLAGS = @CFLAGS@
 
 # we use thread safe version of library
 MYSQL_CFLAGS = -I$(PREFIX)/include
-MYSQL_LDFLAGS = -L$(PREFIX)/lib/mysql -lmysqlclient_r -Wl,-rpath=$(PREFIX)/lib/mysql -Wl,-O1
+MYSQL_LDFLAGS = -L@LIBMYSQLDIR@ -lmysqlclient_r @RPATH@
 
 # hack for local access
 GEARMAN_CFLAGS = $(shell PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig pkg-config gearmand --cflags)
@@ -30,12 +26,15 @@ dispatcher: $(OBJECT)
 	$(CC) $(OBJECT) $(LDFLAGS_REAL) -o dispatcher
 
 clean:
-	rm $(OBJECT)
-	rm dispatcher
+	rm -f $(OBJECT) dispatcher
+	
+distclean: clean
+	rm -f config.log config.status config.h configure Makefile
+	rm -rf autom4te.cache .deps
 
 all: dispatcher
 
 install:
 	$(INSTALL) -m 755 dispatcher $(PREFIX)/bin
 
-.PHONY: all clean install
+.PHONY: all clean distclean install

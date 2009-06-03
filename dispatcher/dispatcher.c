@@ -1,3 +1,5 @@
+#include "config.h"
+
 /* standard headers */
 #include <stdlib.h>
 #include <stdio.h>
