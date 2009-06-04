@@ -19,7 +19,7 @@
 #include <syslog.h>             /* system log */
 
 /* global defines */
-#define QUEUE_LIMIT        10    /* maximum number of concurrent workers */
+#define QUEUE_LIMIT        50    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        4096  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
@@ -85,6 +85,9 @@ typedef struct dp_task_reply {
 /* global signal flag */
 volatile sig_atomic_t child_flag = FALSE;
 
+/* global flag to pause dispatching */
+volatile sig_atomic_t pause_flag = FALSE;
+
 /* global status variables */
 int      child_counter = 0;         /* current number of running children */
 dp_child child_status[QUEUE_LIMIT]; /* array of child status */
@@ -115,6 +118,7 @@ char   *dp_struchr       (const char *str, size_t length, char character);     /
 char   *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
 char   *dp_strcat        (const char *str, ...);                               /* concatenate string helper */
 void    dp_sigchld       (int signal);                                         /* SIGCHLD handler */
+void    dp_sighup        (int signal);                                         /* SIGHUP handler */
 void    dp_status_update (size_t *queue_counter);                              /* process child_status table */
 
 dp_child *dp_child_null ();           /* find first null entry in child_status array */

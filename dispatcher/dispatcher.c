@@ -35,12 +35,13 @@ int main()
         pid_t pid;
 
         /* If we are already at maximum fork capacity, we shouldn't
-         * grab another task, we should just sleep for a bit
+         * grab another task, we should just sleep for a bit.  Or,
+         * maybe we were told to stop dispatching.
          *
          * NOTE: this prevents automatic update of task in database, even
          * when there is no space in queue
          */
-        if (queue_counter >= QUEUE_LIMIT) {
+        if ((pause_flag == TRUE) || (queue_counter >= QUEUE_LIMIT)) {
             /* This sleep call may be interrupted by a signal, but the
              * only signals we care about are when a child is finished,
              * at which point, we want to try another task anyway.
@@ -298,17 +299,25 @@ dp_bool dp_signal_init()
     struct sigaction action;
     sigset_t block;
 
-    /* queue multiple SIGCHLD signals */
+    /* queue multiple SIGCHLD signals, used to prevent zombie children */
     sigemptyset(&block);
     sigaddset(&block, SIGCHLD);
+    /* queue multiple SIGHUP signals, used to pause and resume dispatching */
+    sigaddset(&block, SIGHUP);
 
-    /* setup action */
+    /* setup action for SIGCHLD */
     action.sa_handler = dp_sigchld;
     action.sa_mask = block;
     action.sa_flags = 0;
-
     /* install signal handler */
     sigaction(SIGCHLD, &action, NULL);
+
+    /* setup action for SIGHUP */
+    action.sa_handler = dp_sighup;
+    action.sa_mask = block;
+    action.sa_flags = 0;
+    /* install signal handler */
+    sigaction(SIGHUP, &action, NULL);
 
     return TRUE;
 }
@@ -798,6 +807,15 @@ void dp_sigchld(int signal)
 {
     /* update flag to note pending processing */
     child_flag = TRUE;
+}
+
+void dp_sighup(int signal)
+{
+    /* Toggle flag to pause or resume dispatching */
+    if (pause_flag == TRUE)
+        pause_flag = FALSE;
+    else
+        pause_flag = TRUE;
 }
 
 void dp_status_update(size_t *queue_counter)
