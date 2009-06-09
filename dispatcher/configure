@@ -2866,24 +2866,24 @@ else
   saved_LDFLAGS="$LDFLAGS"
   saved_CFLAGS="$CFLAGS"
   lib_found=no
-  for libdir in $trymysqldir "" /nexopia/lib/mysql $prefix /usr/local /usr/pkg; do
+  for mysqldir in $trymysqldir "" /nexopia/ $prefix /usr/local /usr/pkg; do
     LDFLAGS="$saved_LDFLAGS"
     LIBS="$saved_LIBS -lmysqlclient_r"
 
     # Skip the directory if it isn't there.
-    if test ! -z "$libdir" -a ! -d "$libdir" ; then
+    if test ! -z "$mysqldir" -a ! -d "$mysqldir" ; then
        continue;
     fi
-    if test ! -z "$libdir" ; then
-      if test -d "$libdir/lib" ; then
-        LDFLAGS="-L$libdir/lib $LDFLAGS"
+    if test ! -z "$mysqldir" ; then
+      if test -d "$mysqldir/lib/mysql" ; then
+        LDFLAGS="-L$mysqldir/lib/mysql $LDFLAGS"
       else
-        LDFLAGS="-L$libdir $LDFLAGS"
+        LDFLAGS="-L$mysqldir $LDFLAGS"
       fi
-      if test -d "$libdir/include" ; then
-        CPPFLAGS="-I$libdir/include $CPPFLAGS"
+      if test -d "$mysqldir/include/mysql" ; then
+        CFLAGS="-I$mysqldir/include $CFLAGS"
       else
-        CPPFLAGS="-I$libdir $CPPFLAGS"
+        CFLAGS="-I$mysqldir $CFLAGS"
       fi
     fi
     # Can I compile and link it?
@@ -2931,8 +2931,8 @@ fi
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
       conftest$ac_exeext conftest.$ac_ext
     if test $libmysql_linked = yes; then
-       if test ! -z "$libdir" ; then
-         LIBMYSQLDIR=$libdir
+       if test ! -z "$mysqldir" ; then
+         LIBMYSQLDIR=$mysqldir/lib/mysql
        else
          LIBMYSQLDIR="(system)"
        fi
