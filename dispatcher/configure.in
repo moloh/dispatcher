@@ -2,101 +2,16 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(dispatcher, [0.9], michal@nexopia.com)
+AC_INIT(dispatcher, [0.9.1], michal@nexopia.com)
 AC_CONFIG_SRCDIR([dispatcher.c])
 AC_CONFIG_HEADER([config.h])
 AC_PREFIX_DEFAULT(/nexopia)
 
-AC_ARG_ENABLE(release,
- AC_HELP_STRING(--enable-release, compile in release mode),
-[if test x$enableval = xyes; then
-    CFLAGS="$CFLAGS -Os -pedantic -Wall"
-fi])
-
-AC_ARG_ENABLE(debug,
- AC_HELP_STRING(--enable-debug, compile with debugging info),
-[if test x$enableval = xyes; then
-    CFLAGS="$CFLAGS -g -O0 -pedantic -Wall"
-fi])
-
-# Checks for programs.
+# Checks for programs
 AC_PROG_CC_C99
+AC_PROG_INSTALL
 
-# Checks for libraries.
-trymysqldir=""
-AC_ARG_WITH(mysql,
-        [  --with-mysql=PATH       specify path to MySQL installation ],
-        [
-                if test "x$withval" != "xno" ; then
-                        trymysqldir=$withval
-                fi
-        ]
-)
-# ------------------------------------------------------
-# Where do you live, libmysqlclient?  And how do we call you?
-
-AC_CACHE_CHECK([for libmysqlclient directory], LIBMYSQLDIR, [
-  saved_LIBS="$LIBS"
-  saved_LDFLAGS="$LDFLAGS"
-  saved_CFLAGS="$CFLAGS"
-  lib_found=no
-  for mysqldir in $trymysqldir "" /nexopia/ $prefix /usr/local /usr/pkg; do
-    LDFLAGS="$saved_LDFLAGS"
-    LIBS="$saved_LIBS -lmysqlclient_r"
-
-    # Skip the directory if it isn't there.
-    if test ! -z "$mysqldir" -a ! -d "$mysqldir" ; then
-       continue;
-    fi
-    if test ! -z "$mysqldir" ; then
-      if test -d "$mysqldir/lib/mysql" ; then
-        LDFLAGS="-L$mysqldir/lib/mysql $LDFLAGS"
-      else
-        LDFLAGS="-L$mysqldir $LDFLAGS"
-      fi
-      if test -d "$mysqldir/include/mysql" ; then
-        CFLAGS="-I$mysqldir/include $CFLAGS"
-      else
-        CFLAGS="-I$mysqldir $CFLAGS"
-      fi
-    fi
-    # Can I compile and link it?
-    AC_TRY_LINK([#include <mysql/mysql.h>], [ my_init(); ],
-       [ libmysql_linked=yes ], [ libmysql_linked=no ])
-    if test $libmysql_linked = yes; then
-       if test ! -z "$mysqldir" ; then
-         LIBMYSQLDIR=$mysqldir/lib/mysql
-       else
-         LIBMYSQLDIR="(system)"
-       fi
-       lib_found=yes
-       break
-    fi
-  done
-  LIBS="$saved_LIBS"
-  LDFLAGS="$saved_LDFLAGS"
-  CPPFLAGS="$saved_CPPFLAGS"
-  if test $lib_found = no ; then
-    AC_MSG_ERROR([Could not find a linkable libmysqlclient. You can specify an explicit path using --with-mysql-dir])
-  else
-	AC_MSG_RESULT($LIBMYSQLDIR)
-    AC_SUBST(LIBMYSQLDIR)
-  fi
-])
-
-# Add rpath info
-# RPATH is the path used to look for shared library files.
-AC_MSG_CHECKING(RPATH)
-if test -z "$RPATH"
-then
-  case $host in
-  *-*-linux*) RPATH='-Wl,-rpath=$LIBMYSQLDIR/lib';;
-  *) RPATH='';;
-  esac
-fi
-AC_MSG_RESULT($RPATH)
-AC_SUBST(RPATH)
-
+AC_SUBST(INSTALL)
 
 # Checks for header files.
 AC_HEADER_STDC
@@ -114,6 +29,193 @@ AC_FUNC_FORK
 AC_FUNC_MALLOC
 AC_FUNC_VPRINTF
 AC_CHECK_FUNCS([memset])
+
+AC_ARG_ENABLE(release,
+    AC_HELP_STRING(--enable-release, compile in release mode), [
+    if test x$enableval = xyes; then
+        CFLAGS="$CFLAGS -Os -pedantic -Wall"
+    fi]
+)
+
+AC_ARG_ENABLE(debug,
+    AC_HELP_STRING(--enable-debug, compile with debugging info), [
+    if test x$enableval = xyes; then
+        CFLAGS="$CFLAGS -g -O0 -pedantic -Wall"
+    fi]
+)
+
+# custom flags
+AC_ARG_WITH([mysql], AS_HELP_STRING([--with-mysql=PATH],
+  [provide base directory for libmysql]),
+  [with_MYSQL_DIR=$withval],[])
+
+AC_ARG_WITH([gearman], AS_HELP_STRING([--with-gearman=PATH],
+  [provide base directory for gearman]),
+  [with_GEARMAN_DIR=$withval],[])
+
+AC_ARG_WITH([rpath], AS_HELP_STRING([--with-rpath],
+  [build with rpath if supported (default=yes)]),
+  [with_RPATH=$withval],
+  [with_RPATH=yes])
+
+# Check for RPATH
+if test $with_RPATH = yes; then
+    AC_CACHE_CHECK([for rpath], [ac_cv_HAVE_RPATH], [
+        saved_LDFLAGS="$LDFLAGS"
+        RPATH=""
+
+        # setup link flags
+        case $(uname -s) in
+            Linux)
+                rpath_PREFIX="-Wl,-rpath="
+                LDFLAGS=$rpath_PREFIX"/" ;;
+            Darwin|*)
+                rpath_PREFIX=""
+                LDFLAGS="" ;;
+        esac
+
+        # try compile
+        if test ! -z $LDFLAGS; then
+            AC_LINK_IFELSE(AC_LANG_PROGRAM([],[]),
+                [ac_cv_HAVE_RPATH=yes],
+                [ac_cv_HAVE_RPATH=no]
+            )
+        else
+            ac_cv_HAVE_RPATH=no
+        fi
+
+        if test $ac_cv_HAVE_RPATH = yes; then
+            RPATH=$rpath_PREFIX
+        fi
+
+        LDFLAGS="$saved_LDFLAGS"
+    ])
+fi
+
+# check for MYSQL
+AC_CACHE_CHECK([for mysql prefix directory], [ac_cv_MYSQL_DIR], [
+    saved_LIBS="$LIBS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_CFLAGS="$CFLAGS"
+
+    LIBS="-lmysqlclient_r"
+    ac_cv_MYSQL_DIR=""
+
+    for mysqldir in $with_MYSQL_DIR /nexopia /usr; do
+        # Skip the directory if it isn't there.
+        if test ! -d "$mysqldir" ; then
+            continue
+        fi
+
+        if test -d "$mysqldir/lib/mysql" ; then
+            LDDIR="$mysqldir/lib/mysql"
+        else
+            LDDIR="$mysqldir/lib"
+        fi
+
+        INCDIR="$mysqldir/include"
+
+        LDFLAGS="-L$LDDIR"
+        CFLAGS="-I$INCDIR"
+
+        # Can I compile and link it?
+        AC_TRY_LINK([#include <mysql/mysql.h>], [ my_init(); ],
+            [ libmysql_linked=yes ],
+            [ libmysql_linked=no ])
+
+        if test $libmysql_linked = yes; then
+            ac_cv_MYSQL_DIR=$mysqldir
+            break
+        fi
+    done
+
+    if test ! -z $ac_cv_MYSQL_DIR; then
+        MYSQL_LIBS="$LIBS"
+        MYSQL_LDFLAGS="-L$LDDIR"
+        MYSQL_CFLAGS="-I$INCDIR"
+        MYSQL_RPATH=""
+
+        if test $ac_cv_HAVE_RPATH = yes; then
+            MYSQL_RPATH="$RPATH$LDDIR"
+        fi
+    else
+        ac_cv_MYSQL_DIR="(missing)"
+    fi
+
+    unset LDDIR
+    unset INCDIR
+
+    LIBS="$saved_LIBS"
+    LDFLAGS="$saved_LDFLAGS"
+    CPPFLAGS="$saved_CPPFLAGS"
+])
+
+if test $ac_cv_MYSQL_DIR = "(missing)"; then
+    AC_MSG_ERROR([Could not find a linkable libmysqlclient. You can specify an explicit path using --with-mysql])
+fi
+
+AC_SUBST([MYSQL_LIBS])
+AC_SUBST([MYSQL_LDFLAGS])
+AC_SUBST([MYSQL_CFLAGS])
+AC_SUBST([MYSQL_RPATH])
+
+# check for MYSQL
+AC_CACHE_CHECK([for gearman prefix directory], [ac_cv_GEARMAN_DIR], [
+    saved_LIBS="$LIBS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_CFLAGS="$CFLAGS"
+
+    LIBS="-lgearman"
+    ac_cv_GEARMAN_DIR=""
+
+    for gearmandir in $with_GEARMAN_DIR /nexopia /usr; do
+        # Skip the directory if it isn't there.
+        if test ! -d "$gearmandir" ; then
+            continue
+        fi
+
+        LDDIR="$gearmandir/lib"
+        INCDIR="$gearmandir/include"
+
+        LDFLAGS="-L$LDDIR"
+        CFLAGS="-I$INCDIR"
+
+        # Can I compile and link it?
+        AC_TRY_LINK([#include <libgearman/gearman.h>], [ gearman_client_create(0); ],
+            [ libgearman_linked=yes ],
+            [ libgearman_linked=no ])
+
+        if test $libgearman_linked = yes; then
+            ac_cv_GEARMAN_DIR=$gearmandir
+            break
+        fi
+    done
+
+    if test ! -z $ac_cv_GEARMAN_DIR; then
+        GEARMAN_LIBS="$LIBS"
+        GEARMAN_LDFLAGS="-L$LDDIR"
+        GEARMAN_CFLAGS="-I$INCDIR"
+        GEARMAN_RPATH=""
+    else
+        ac_cv_GEARMAN_DIR="(missing)"
+    fi
+
+    unset LDDIR
+    unset INCDIR
+
+    LIBS="$saved_LIBS"
+    LDFLAGS="$saved_LDFLAGS"
+    CPPFLAGS="$saved_CPPFLAGS"
+])
+
+if test $ac_cv_GEARMAN_DIR = "(missing)"; then
+    AC_MSG_ERROR([Could not find a linkable libgearman. You can specify an explicit path using --with-gearman])
+fi
+
+AC_SUBST([GEARMAN_LIBS])
+AC_SUBST([GEARMAN_LDFLAGS])
+AC_SUBST([GEARMAN_CFLAGS])
+AC_SUBST([GEARMAN_RPATH])
 
 AC_OUTPUT(Makefile)
 

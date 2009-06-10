@@ -1,23 +1,24 @@
-# basic variables, hack rpath for /nexopia runtime
+# basic variables
 PREFIX = @prefix@
 CC = @CC@
-INSTALL = $(shell which install)
+INSTALL = @INSTALL@
 CFLAGS = @CFLAGS@
+LDFLAGS = @LDFLAGS@
 
-# we use thread safe version of library
-MYSQL_CFLAGS = -I$(PREFIX)/include
-MYSQL_LDFLAGS = -L@LIBMYSQLDIR@ -lmysqlclient_r @RPATH@
+# mysql
+MYSQL_CFLAGS = @MYSQL_CFLAGS@
+MYSQL_LDFLAGS = @MYSQL_LDFLAGS@ @MYSQL_RPATH@ @MYSQL_LIBS@
 
-# hack for local access
-GEARMAN_CFLAGS = $(shell PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig pkg-config gearmand --cflags)
-GEARMAN_LDFLAGS = $(shell PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig pkg-config gearmand --libs)
+# gearman
+GEARMAN_CFLAGS = @GEARMAN_CFLAGS@
+GEARMAN_LDFLAGS = @GEARMAN_LDFLAGS@ @GEARMAN_RPATH@ @GEARMAN_LIBS@
 
 SOURCE = dispatcher.c
 HEADER = dispatcher.h
 OBJECT = dispatcher.o
 
 # setup final compiler flags
-CFLAGS_REAL = $(DEFINES) $(CFLAGS) $(MYSQL_CFLAGS) $(GEARMAN_CFLAGS)
+CFLAGS_REAL = $(CFLAGS) $(MYSQL_CFLAGS) $(GEARMAN_CFLAGS)
 LDFLAGS_REAL = $(LDFLAGS) $(MYSQL_LDFLAGS) $(GEARMAN_LDFLAGS)
 
 all: dispatcher

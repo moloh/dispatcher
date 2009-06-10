@@ -1,0 +1,10 @@
+2009-06-10 dispatcher 0.9.1
+
+* add tests for gearman and remove pkg-config
+* modify tests for mysql and RPATH
+* modify tests for RPATH
+
+2009-06-03 dispatcher 0.9.0
+
+* initial autotools support
+* first official release
