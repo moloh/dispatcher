@@ -1338,8 +1338,8 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
-  --enable-release        compile in release mode
-  --enable-debug          compile with debugging info
+  --enable-release        compile in release mode (default=yes)
+  --enable-debug          compile in release mode (default=no)
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -5353,23 +5353,25 @@ done
 
 # Check whether --enable-release was given.
 if test "${enable_release+set}" = set; then
-  enableval=$enable_release;
-    if test x$enableval = xyes; then
-        CFLAGS="$CFLAGS -Os -pedantic -Wall"
-    fi
-
+  enableval=$enable_release; enable_RELEASE=$enableval
+else
+  enable_RELEASE=yes
 fi
 
 
 # Check whether --enable-debug was given.
 if test "${enable_debug+set}" = set; then
-  enableval=$enable_debug;
-    if test x$enableval = xyes; then
-        CFLAGS="$CFLAGS -g -O0 -pedantic -Wall"
-    fi
-
+  enableval=$enable_debug; enable_DEBUG=$enableval
+else
+  enable_DEBUG=no
 fi
 
+
+if test x$enable_DEBUG = xyes; then
+    CFLAGS="-g -O0 -pedantic -Wall $CFLAGS"
+elif test x$enable_RELEASE = xyes; then
+    CFLAGS="-Os -pedantic -Wall $CFLAGS"
+fi
 
 # custom flags
 
@@ -5470,7 +5472,7 @@ rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
             ac_cv_HAVE_RPATH=no
         fi
 
-        if test $ac_cv_HAVE_RPATH = yes; then
+        if test x$ac_cv_HAVE_RPATH = xyes; then
             RPATH=$rpath_PREFIX
         fi
 
@@ -5561,7 +5563,7 @@ rm -rf conftest.dSYM
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
       conftest$ac_exeext conftest.$ac_ext
 
-        if test $libmysql_linked = yes; then
+        if test x$libmysql_linked = xyes; then
             ac_cv_MYSQL_DIR=$mysqldir
             break
         fi
@@ -5573,7 +5575,7 @@ rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
         MYSQL_CFLAGS="-I$INCDIR"
         MYSQL_RPATH=""
 
-        if test $ac_cv_HAVE_RPATH = yes; then
+        if test x$ac_cv_HAVE_RPATH = xyes; then
             MYSQL_RPATH="$RPATH$LDDIR"
         fi
     else
@@ -5585,13 +5587,13 @@ rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
 
     LIBS="$saved_LIBS"
     LDFLAGS="$saved_LDFLAGS"
-    CPPFLAGS="$saved_CPPFLAGS"
+    CFLAGS="$saved_CFLAGS"
 
 fi
 { $as_echo "$as_me:$LINENO: result: $ac_cv_MYSQL_DIR" >&5
 $as_echo "$ac_cv_MYSQL_DIR" >&6; }
 
-if test $ac_cv_MYSQL_DIR = "(missing)"; then
+if test x$ac_cv_MYSQL_DIR = "x(missing)"; then
     { { $as_echo "$as_me:$LINENO: error: Could not find a linkable libmysqlclient. You can specify an explicit path using --with-mysql" >&5
 $as_echo "$as_me: error: Could not find a linkable libmysqlclient. You can specify an explicit path using --with-mysql" >&2;}
    { (exit 1); exit 1; }; }
@@ -5677,7 +5679,7 @@ rm -rf conftest.dSYM
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
       conftest$ac_exeext conftest.$ac_ext
 
-        if test $libgearman_linked = yes; then
+        if test x$libgearman_linked = xyes; then
             ac_cv_GEARMAN_DIR=$gearmandir
             break
         fi
@@ -5697,13 +5699,13 @@ rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
 
     LIBS="$saved_LIBS"
     LDFLAGS="$saved_LDFLAGS"
-    CPPFLAGS="$saved_CPPFLAGS"
+    CFLAGS="$saved_CFLAGS"
 
 fi
 { $as_echo "$as_me:$LINENO: result: $ac_cv_GEARMAN_DIR" >&5
 $as_echo "$ac_cv_GEARMAN_DIR" >&6; }
 
-if test $ac_cv_GEARMAN_DIR = "(missing)"; then
+if test x$ac_cv_GEARMAN_DIR = "x(missing)"; then
     { { $as_echo "$as_me:$LINENO: error: Could not find a linkable libgearman. You can specify an explicit path using --with-gearman" >&5
 $as_echo "$as_me: error: Could not find a linkable libgearman. You can specify an explicit path using --with-gearman" >&2;}
    { (exit 1); exit 1; }; }

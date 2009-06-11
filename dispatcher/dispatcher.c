@@ -373,7 +373,7 @@ dp_bool dp_gearman_init(gearman_client_st **client)
 dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t size)
 {
     const char *str = result, *end;
-    const char *last = result + strlen(result);
+    const char *last = result + size;
     char *name = NULL;
 
     /* initialize */

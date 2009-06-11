@@ -1,3 +1,8 @@
+2009-06-11 dispatcher 0.9.2
+
+* fix invalid memory access if gearman reply processing
+* fix CFLAGS processing, fix configure.ac string tests
+
 2009-06-10 dispatcher 0.9.1
 
 * add tests for gearman and remove pkg-config

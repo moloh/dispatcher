@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(dispatcher, [0.9.1], michal@nexopia.com)
+AC_INIT(dispatcher, [0.9.2], michal@nexopia.com)
 AC_CONFIG_SRCDIR([dispatcher.c])
 AC_CONFIG_HEADER([config.h])
 AC_PREFIX_DEFAULT(/nexopia)
@@ -31,32 +31,41 @@ AC_FUNC_VPRINTF
 AC_CHECK_FUNCS([memset])
 
 AC_ARG_ENABLE(release,
-    AC_HELP_STRING(--enable-release, compile in release mode), [
-    if test x$enableval = xyes; then
-        CFLAGS="$CFLAGS -Os -pedantic -Wall"
-    fi]
-)
+    AC_HELP_STRING([--enable-release],
+        [compile in release mode (default=yes)]),
+    [enable_RELEASE=$enableval],
+    [enable_RELEASE=yes])
 
 AC_ARG_ENABLE(debug,
-    AC_HELP_STRING(--enable-debug, compile with debugging info), [
-    if test x$enableval = xyes; then
-        CFLAGS="$CFLAGS -g -O0 -pedantic -Wall"
-    fi]
-)
+    AC_HELP_STRING([--enable-debug],
+        [compile in release mode (default=no)]),
+    [enable_DEBUG=$enableval],
+    [enable_DEBUG=no])
+
+if test x$enable_DEBUG = xyes; then
+    CFLAGS="-g -O0 -pedantic -Wall $CFLAGS"
+elif test x$enable_RELEASE = xyes; then
+    CFLAGS="-Os -pedantic -Wall $CFLAGS"
+fi
 
 # custom flags
-AC_ARG_WITH([mysql], AS_HELP_STRING([--with-mysql=PATH],
-  [provide base directory for libmysql]),
-  [with_MYSQL_DIR=$withval],[])
+AC_ARG_WITH([mysql],
+    AS_HELP_STRING([--with-mysql=PATH],
+        [provide base directory for libmysql]),
+    [with_MYSQL_DIR=$withval],
+    [])
 
-AC_ARG_WITH([gearman], AS_HELP_STRING([--with-gearman=PATH],
-  [provide base directory for gearman]),
-  [with_GEARMAN_DIR=$withval],[])
+AC_ARG_WITH([gearman],
+    AS_HELP_STRING([--with-gearman=PATH],
+        [provide base directory for gearman]),
+    [with_GEARMAN_DIR=$withval],
+    [])
 
-AC_ARG_WITH([rpath], AS_HELP_STRING([--with-rpath],
-  [build with rpath if supported (default=yes)]),
-  [with_RPATH=$withval],
-  [with_RPATH=yes])
+AC_ARG_WITH([rpath],
+    AS_HELP_STRING([--with-rpath],
+        [build with rpath if supported (default=yes)]),
+    [with_RPATH=$withval],
+    [with_RPATH=yes])
 
 # Check for RPATH
 if test $with_RPATH = yes; then
@@ -84,7 +93,7 @@ if test $with_RPATH = yes; then
             ac_cv_HAVE_RPATH=no
         fi
 
-        if test $ac_cv_HAVE_RPATH = yes; then
+        if test x$ac_cv_HAVE_RPATH = xyes; then
             RPATH=$rpath_PREFIX
         fi
 
@@ -123,7 +132,7 @@ AC_CACHE_CHECK([for mysql prefix directory], [ac_cv_MYSQL_DIR], [
             [ libmysql_linked=yes ],
             [ libmysql_linked=no ])
 
-        if test $libmysql_linked = yes; then
+        if test x$libmysql_linked = xyes; then
             ac_cv_MYSQL_DIR=$mysqldir
             break
         fi
@@ -135,7 +144,7 @@ AC_CACHE_CHECK([for mysql prefix directory], [ac_cv_MYSQL_DIR], [
         MYSQL_CFLAGS="-I$INCDIR"
         MYSQL_RPATH=""
 
-        if test $ac_cv_HAVE_RPATH = yes; then
+        if test x$ac_cv_HAVE_RPATH = xyes; then
             MYSQL_RPATH="$RPATH$LDDIR"
         fi
     else
@@ -147,10 +156,10 @@ AC_CACHE_CHECK([for mysql prefix directory], [ac_cv_MYSQL_DIR], [
 
     LIBS="$saved_LIBS"
     LDFLAGS="$saved_LDFLAGS"
-    CPPFLAGS="$saved_CPPFLAGS"
+    CFLAGS="$saved_CFLAGS"
 ])
 
-if test $ac_cv_MYSQL_DIR = "(missing)"; then
+if test x$ac_cv_MYSQL_DIR = "x(missing)"; then
     AC_MSG_ERROR([Could not find a linkable libmysqlclient. You can specify an explicit path using --with-mysql])
 fi
 
@@ -185,7 +194,7 @@ AC_CACHE_CHECK([for gearman prefix directory], [ac_cv_GEARMAN_DIR], [
             [ libgearman_linked=yes ],
             [ libgearman_linked=no ])
 
-        if test $libgearman_linked = yes; then
+        if test x$libgearman_linked = xyes; then
             ac_cv_GEARMAN_DIR=$gearmandir
             break
         fi
@@ -205,10 +214,10 @@ AC_CACHE_CHECK([for gearman prefix directory], [ac_cv_GEARMAN_DIR], [
 
     LIBS="$saved_LIBS"
     LDFLAGS="$saved_LDFLAGS"
-    CPPFLAGS="$saved_CPPFLAGS"
+    CFLAGS="$saved_CFLAGS"
 ])
 
-if test $ac_cv_GEARMAN_DIR = "(missing)"; then
+if test x$ac_cv_GEARMAN_DIR = "x(missing)"; then
     AC_MSG_ERROR([Could not find a linkable libgearman. You can specify an explicit path using --with-gearman])
 fi
 
