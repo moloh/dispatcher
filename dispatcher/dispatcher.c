@@ -2,8 +2,10 @@
 
 int main()
 {
-    size_t queue_counter = child_counter; /* number of jobs in queue */
-    size_t sense_counter = 0;             /* number of empty iterations */
+    int32_t queue_counter = child_counter; /* number of jobs in queue */
+    int32_t sense_counter = 0;             /* number of empty iterations (queue not full) */
+    int32_t terminate_counter = 0;         /* number of terminate iterations */
+    int32_t pause_counter = 0;             /* number of pause iterations */
     char query[QUERY_LIMIT];              /* query buffer */
     MYSQL *db = NULL;
 
@@ -36,12 +38,56 @@ int main()
 
         /* If we are already at maximum fork capacity, we shouldn't
          * grab another task, we should just sleep for a bit.  Or,
-         * maybe we were told to stop dispatching.
+         * maybe we were told to stop dispatching or terminate.
          *
          * NOTE: this prevents automatic update of task in database, even
          * when there is no space in queue
+         *
+         * NOTE: pause and terminate sense counters are reset when flag is
+         * disabled
          */
-        if ((pause_flag == TRUE) || (queue_counter >= QUEUE_LIMIT)) {
+        if ((terminate_flag == TRUE) ||
+            (pause_flag == TRUE) ||
+            (queue_counter >= QUEUE_LIMIT)) {
+
+            /* Check if we should terminate */
+            if (terminate_flag == TRUE) {
+                /* if we start countdown then we should print some information
+                 * to syslog and terminal
+                 */
+                if (terminate_counter == 0) {
+                    dp_logger(LOG_WARNING, "Terminating... Waiting for children");
+                    fprintf(stderr, "Terminating... Waiting for children""\n");
+                }
+
+                /* Check if we should print sense information during terminate */
+                if (terminate_counter++ >= TERMINATE_LIMIT) {
+                    dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, QUEUE_LIMIT);
+                    fprintf(stderr, "(%d/%d) Terminating...""\n", queue_counter, QUEUE_LIMIT);
+                    terminate_counter = 1;
+                }
+
+                /* Check if all children are done
+                 * NOTE: we break main loop here
+                 */
+                if (queue_counter <= 0) {
+                    dp_logger(LOG_WARNING, "Terminated");
+                    fprintf(stderr, "Terminated""\n");
+                    break;
+                }
+            } else
+                terminate_counter = 0;
+
+            /* Check if we are paused */
+            if (pause_flag == TRUE) {
+                /* Check if we should print sense information during pause */
+                if (++pause_counter >= PAUSE_LIMIT) {
+                    dp_logger(LOG_NOTICE, "(%d/%d) Sleeping...", queue_counter, QUEUE_LIMIT);
+                    pause_counter = 0;
+                }
+            } else
+                pause_counter = 0;
+
             /* This sleep call may be interrupted by a signal, but the
              * only signals we care about are when a child is finished,
              * at which point, we want to try another task anyway.
@@ -52,6 +98,9 @@ int main()
             dp_status_update(&queue_counter);
 
             continue;
+        } else {
+            terminate_counter = 0;
+            pause_counter = 0;
         }
 
         /* get timestamp */
@@ -297,10 +346,12 @@ dp_bool dp_signal_init()
 
     /* setup signals */
     struct sigaction action;
-    sigset_t block;
+    sigset_t block, no_block;
+
+    sigemptyset(&block);
+    sigemptyset(&no_block);
 
     /* queue multiple SIGCHLD signals, used to prevent zombie children */
-    sigemptyset(&block);
     sigaddset(&block, SIGCHLD);
     /* queue multiple SIGHUP signals, used to pause and resume dispatching */
     sigaddset(&block, SIGHUP);
@@ -318,6 +369,13 @@ dp_bool dp_signal_init()
     action.sa_flags = 0;
     /* install signal handler */
     sigaction(SIGHUP, &action, NULL);
+
+    /* setup action for SIGTERM */
+    action.sa_handler = dp_sigterm;
+    action.sa_mask = no_block;
+    action.sa_flags = 0;
+    /* install signal handler */
+    sigaction(SIGTERM, &action, NULL);
 
     return TRUE;
 }
@@ -818,7 +876,13 @@ void dp_sighup(int signal)
         pause_flag = TRUE;
 }
 
-void dp_status_update(size_t *queue_counter)
+void dp_sigterm(int signal)
+{
+    /* dispatcher should terminate */
+    terminate_flag = TRUE;
+}
+
+void dp_status_update(int32_t *queue_counter)
 {
     int status;
     pid_t pid;

@@ -6,23 +6,37 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdbool.h>  /* _Bool */
-#include <unistd.h>   /* sleep, fork */
-#include <signal.h>   /* SIGCHLD handling */
-#include <sys/wait.h> /* wait */
+#include <stdint.h>   /* int32_t */
 #include <time.h>     /* time */
 #include <ctype.h>    /* isspace */
 
 /* other headers */
+#include <unistd.h>             /* sleep, fork */
+#include <signal.h>             /* SIGCHLD handling */
+#include <sys/wait.h>           /* wait */
+#include <syslog.h>             /* system log */
 #include <mysql/mysql.h>        /* mysql */
 #include <mysql/errmsg.h>
 #include <libgearman/gearman.h> /* gearman */
-#include <syslog.h>             /* system log */
+
+/* check macros */
+#ifdef __GNUC__
+#define ATTRIBUTE_PRINTF(A1,A2) __attribute__ ((format  (printf,A1,A2)))
+#define ATTRIBUTE_SENTINEL      __attribute__ ((sentinel))
+#define ATTRIBUTE_NONNULL(...)  __attribute__ ((nonnull (__VA_ARGS__)));
+#else
+#define ATTRIBUTE_PRINTF(A1,A2)
+#define ATTRIBUTE_SENTINEL
+#define ATTRIBUTE_NONNULL(...)
+#endif /* __GNUC__ */
 
 /* global defines */
 #define QUEUE_LIMIT        50    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        4096  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
+#define TERMINATE_LIMIT    5     /* sense when terminated log delay */
+#define PAUSE_LIMIT        15    /* sense when paused log delay */
 #define SLEEP_TIMEOUT      1     /* main loop timeout */
 #define TIMESTAMP_DELAY    5*60  /* task execution delay */
 
@@ -82,11 +96,14 @@ typedef struct dp_task_reply {
     char *message;
 } dp_task_reply;
 
-/* global signal flag */
+/* global flag to indicate child state change */
 volatile sig_atomic_t child_flag = FALSE;
 
 /* global flag to pause dispatching */
 volatile sig_atomic_t pause_flag = FALSE;
+
+/* global flag to terminate dispatcher */
+volatile sig_atomic_t terminate_flag = FALSE;
 
 /* global status variables */
 int      child_counter = 0;         /* current number of running children */
@@ -110,16 +127,20 @@ void    dp_mysql_task_free  (dp_task *task);                           /* free d
 void    dp_mysql_task_clear (dp_task *task);                           /* clear data associated with task */
 
 void    dp_logger_init   (const char *ident);                                  /* initialize logging capabilities */
-void    dp_logger        (int priority, const char *message, ...);             /* log message with specific priority */
-int     dp_asprintf      (char **strp, const char *format, ...);               /* portability wrapper, allocated sprintf */
+void    dp_logger        (int priority, const char *message, ...)              /* log message with specific priority */
+                          ATTRIBUTE_PRINTF(2,3);
+int     dp_asprintf      (char **strp, const char *format, ...)                /* portability wrapper, allocated sprintf */
+                          ATTRIBUTE_PRINTF(2,3);
 char   *dp_strdup        (const char *str);                                    /* dup string helper */
 char   *dp_strudup       (const char *str, size_t length);                     /* sized dup string helper */
 char   *dp_struchr       (const char *str, size_t length, char character);     /* sized strchr string helper */
 char   *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
-char   *dp_strcat        (const char *str, ...);                               /* concatenate string helper */
+char   *dp_strcat        (const char *str, ...)                                /* concatenate string helper */
+                          ATTRIBUTE_SENTINEL;
 void    dp_sigchld       (int signal);                                         /* SIGCHLD handler */
 void    dp_sighup        (int signal);                                         /* SIGHUP handler */
-void    dp_status_update (size_t *queue_counter);                              /* process child_status table */
+void    dp_sigterm       (int signal);                                         /* SIGTERM handler */
+void    dp_status_update (int32_t *queue_counter);                             /* process child_status table */
 
 dp_child *dp_child_null ();           /* find first null entry in child_status array */
 dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */
