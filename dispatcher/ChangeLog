@@ -1,3 +1,10 @@
+2009-06-16 dispatcher 0.9.91
+
+* increase query limit size (maybe heap based limit would be better in future)
+* refine gearman reply processing, i.e. mysql escaping, limit string replies
+size
+* move status init from signal init into its own method
+
 2009-06-12 dispatcher 0.9.3
 
 * add pause sense information, implement graceful termination

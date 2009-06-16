@@ -32,7 +32,7 @@
 
 /* global defines */
 #define QUEUE_LIMIT        50    /* maximum number of concurrent workers */
-#define QUERY_LIMIT        4096  /* maximum MySQL query length */
+#define QUERY_LIMIT        8192  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 #define SENSE_LIMIT        30    /* sense log delay */
 #define TERMINATE_LIMIT    5     /* sense when terminated log delay */
@@ -88,13 +88,23 @@ typedef struct dp_child {
 } dp_child;
 
 /* task reply definition structure */
-typedef struct dp_task_reply {
+typedef struct dp_reply {
     char *backtrace;
     char *error;
     char *status;
     char *result;
     char *message;
-} dp_task_reply;
+} dp_reply;
+
+/* task reply field ids */
+typedef enum dp_reply_val {
+    DP_REPLY_UNKNOWN,
+    DP_REPLY_BACKTRACE,
+    DP_REPLY_ERROR,
+    DP_REPLY_STATUS,
+    DP_REPLY_RESULT,
+    DP_REPLY_MESSAGE,
+} dp_reply_val;
 
 /* global flag to indicate child state change */
 volatile sig_atomic_t child_flag = FALSE;
@@ -114,15 +124,21 @@ dp_bool dp_signal_init    ();                  /* initialize signal handling (lo
 dp_bool dp_signal_block   (sigset_t *old);     /* block SIGCHLD and return old mask */
 dp_bool dp_signal_restore (sigset_t *restore); /* restore old mask */
 
-dp_bool dp_gearman_init      (gearman_client_st **client);                            /* initialize gearman (logged) */
-dp_bool dp_gearman_get_reply (dp_task_reply *reply, const char *result, size_t size); /* parse gearman reply */
-dp_bool dp_gearman_get_value (dp_task_reply *reply, const char *name, char *value);   /* assign name value to reply */
+dp_bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
+dp_bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
+
+dp_reply_val dp_gearman_reply_field  (const char *name);                                       /* get task reply field id from name */
+const char  *dp_gearman_reply_value  (dp_reply *reply, dp_reply_val field);                    /* get value of reply field */
+dp_bool      dp_gearman_reply_set    (dp_reply *reply, dp_reply_val field, char *value);       /* assign name value to reply */
+dp_bool      dp_gearman_reply_escape (dp_reply *reply, dp_reply_val field);                    /* escape name value in reply */
+void         dp_gearman_reply_free   (dp_reply *reply);                                        /* free data associated with reply */
 
 dp_bool dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
 dp_bool dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
 dp_bool dp_mysql_query      (MYSQL *db, const char *query);            /* execute MySQL query (logged), recover */
 dp_bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result);        /* extract MySQL stored task (logged) */
 dp_bool dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract MySQL int variable (logged) */
+
 void    dp_mysql_task_free  (dp_task *task);                           /* free data associated with task */
 void    dp_mysql_task_clear (dp_task *task);                           /* clear data associated with task */
 
@@ -140,6 +156,7 @@ char   *dp_strcat        (const char *str, ...)                                /
 void    dp_sigchld       (int signal);                                         /* SIGCHLD handler */
 void    dp_sighup        (int signal);                                         /* SIGHUP handler */
 void    dp_sigterm       (int signal);                                         /* SIGTERM handler */
+dp_bool dp_status_init   ();                                                   /* initialize child_status table */
 void    dp_status_update (int32_t *queue_counter);                             /* process child_status table */
 
 dp_child *dp_child_null ();           /* find first null entry in child_status array */

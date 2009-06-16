@@ -4,13 +4,14 @@ int main()
 {
     int32_t queue_counter = child_counter; /* number of jobs in queue */
     int32_t sense_counter = 0;             /* number of empty iterations (queue not full) */
-    int32_t terminate_counter = 0;         /* number of terminate iterations */
+    int32_t terminate_counter = -1;        /* number of terminate iterations */
     int32_t pause_counter = 0;             /* number of pause iterations */
-    char query[QUERY_LIMIT];              /* query buffer */
+    char query[QUERY_LIMIT];               /* query buffer */
     MYSQL *db = NULL;
 
-    /* initialize signal processing */
-    if (!dp_signal_init())
+    /* initialize signal and status processing */
+    if (!dp_status_init() ||
+        !dp_signal_init())
         return EXIT_FAILURE;
 
     /* initialize logger */
@@ -55,16 +56,17 @@ int main()
                 /* if we start countdown then we should print some information
                  * to syslog and terminal
                  */
-                if (terminate_counter == 0) {
+                if (terminate_counter == -1) {
                     dp_logger(LOG_WARNING, "Terminating... Waiting for children");
                     fprintf(stderr, "Terminating... Waiting for children""\n");
+                    terminate_counter = 0;
                 }
 
                 /* Check if we should print sense information during terminate */
                 if (terminate_counter++ >= TERMINATE_LIMIT) {
                     dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, QUEUE_LIMIT);
                     fprintf(stderr, "(%d/%d) Terminating...""\n", queue_counter, QUEUE_LIMIT);
-                    terminate_counter = 1;
+                    terminate_counter = 0;
                 }
 
                 /* Check if all children are done
@@ -205,9 +207,10 @@ int main()
 
                 gearman_client_st *client = NULL;
                 gearman_return_t error;
-                dp_task_reply reply;
+                dp_reply reply;
                 void *worker_result = NULL;
                 size_t worker_result_size;
+                const char *value;
 
                 /* initialize logger */
                 dp_logger_init(DP_CHILD);
@@ -247,7 +250,6 @@ int main()
                     !dp_mysql_connect(db))
                     return EXIT_FAILURE;
 
-
                 /* error executing work, retry */
                 if (error) {
                     dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
@@ -266,35 +268,41 @@ int main()
                     return error;
                 }
 
-                /* NOTE: reply may contain non-escaped characters */
-
                 /* process reply from gearman */
+                /* NOTE: reply may contain non-escaped characters */
                 dp_gearman_get_reply(&reply, worker_result, worker_result_size);
 
-                /* prepare query to database */
-                if (reply.status != NULL &&
-                    !strcmp(reply.status, ":ok")) {
+                /* escape value that we want to write to MySQL */
+                dp_gearman_reply_escape(&reply, DP_REPLY_STATUS);
+                value = dp_gearman_reply_value(&reply, DP_REPLY_STATUS);
 
+                /* prepare query to database */
+                if (value != NULL && !strcmp(value, ":ok")) {
+
+                    /* limit query result length to QUERY_LIMIT - 512 */
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE "DP_MYSQL_TABLE" "
-                             "SET status = 'done', result = '%s', result_timestamp = '%ld' "
+                             "SET status = 'done', result = '%.*s', result_timestamp = '%ld' "
                              "WHERE id = %d",
-                             reply.status, timestamp, worker->task.id);
+                             QUERY_LIMIT - 512, value, timestamp, worker->task.id);
 
                 } else {
                     dp_logger(LOG_ERR, "Worker job (%d) result is NOT ok (%s)",
-                              worker->task.id, reply.status);
+                              worker->task.id, value);
 
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE "DP_MYSQL_TABLE" "
-                             "SET status = 'new', run_after = '%ld', result = '%s' "
+                             "SET status = 'new', result = '%.*s', run_after = '%ld' "
                              "WHERE id = %d",
-                             timestamp + TIMESTAMP_DELAY, reply.status, worker->task.id);
+                             QUERY_LIMIT - 512, value, timestamp + TIMESTAMP_DELAY, worker->task.id);
                 }
 
                 /* execute query */
                 if (!dp_mysql_query(db, query))
                     return EXIT_FAILURE;
+
+                /* close mysql connection */
+                mysql_close(db);
 
                 dp_logger(LOG_DEBUG, "Worker finished");
                 return EXIT_SUCCESS;
@@ -328,22 +336,14 @@ int main()
         dp_status_update(&queue_counter);
     }
 
+    /* close mysql connection */
     mysql_close(db);
+
     return EXIT_SUCCESS;
 }
 
 dp_bool dp_signal_init()
 {
-    /* initialize status array */
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i) {
-        /* clear task */
-        dp_mysql_task_clear(&child_status[i].task);
-
-        /* clear other info */
-        child_status[i].pid = 0;
-        child_status[i].null = TRUE;
-    }
-
     /* setup signals */
     struct sigaction action;
     sigset_t block, no_block;
@@ -428,14 +428,15 @@ dp_bool dp_gearman_init(gearman_client_st **client)
 /* TODO: add escaping of reply fields */
 
 /* simple "parser" for YAML reply from gearman */
-dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t size)
+dp_bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
 {
     const char *str = result, *end;
     const char *last = result + size;
+    dp_reply_val field;
     char *name = NULL;
 
     /* initialize */
-    memset(reply, 0, sizeof(dp_task_reply));
+    memset(reply, 0, sizeof(dp_reply));
 
     /* import values */
     for (end = str; end < last; ++end) {
@@ -451,7 +452,8 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
                     value = dp_strudup(str, end - str);
 
                 /* import value, free if fail */
-                if (!dp_gearman_get_value(reply, name, value))
+                field = dp_gearman_reply_field(name);
+                if (!dp_gearman_reply_set(reply, field, value))
                     free(value);
 
                 /* clear name */
@@ -483,7 +485,8 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
 
     if (name != NULL) {
         char *value = dp_strudup(str, end - str);
-        if (!dp_gearman_get_value(reply, name, value))
+        field = dp_gearman_reply_field(name);
+        if (!dp_gearman_reply_set(reply, field, value))
             free(value);
         free(name);
     }
@@ -492,30 +495,146 @@ dp_bool dp_gearman_get_reply(dp_task_reply *reply, const char *result, size_t si
 }
 
 /* set single "hash" value from gearman parser */
-dp_bool dp_gearman_get_value (dp_task_reply *reply, const char *name, char *value)
+dp_bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 {
-    if (name == NULL)
-        return FALSE;
-
-    if (!strcmp(name, ":backtrace:")) {
+    switch (field) {
+    case DP_REPLY_BACKTRACE:
         if (reply->backtrace) free(reply->backtrace);
         reply->backtrace = value;
-    } else if (!strcmp(name, ":error:")) {
+        break;
+    case DP_REPLY_ERROR:
         if (reply->error) free(reply->error);
         reply->error = value;
-    } else if (!strcmp(name, ":status:")) {
+        break;
+    case DP_REPLY_STATUS:
         if (reply->status) free(reply->status);
         reply->status = value;
-    } else if (!strcmp(name, ":result:")) {
+        break;
+    case DP_REPLY_RESULT:
         if (reply->result) free(reply->result);
         reply->result = value;
-    } else if (!strcmp(name, ":message:")) {
+        break;
+    case DP_REPLY_MESSAGE:
         if (reply->message) free(reply->message);
         reply->message = value;
-    } else
+        break;
+    default:
         return FALSE;
+    }
 
     return TRUE;
+}
+
+dp_bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
+{
+    char **value = NULL;
+    char *escape = NULL, *str, *esc;
+    size_t size = 0;
+
+    switch (field) {
+    case DP_REPLY_BACKTRACE:
+        value = &reply->backtrace;
+        break;
+    case DP_REPLY_ERROR:
+        value = &reply->error;
+        break;
+    case DP_REPLY_STATUS:
+        value = &reply->status;
+        break;
+    case DP_REPLY_RESULT:
+        value = &reply->result;
+        break;
+    case DP_REPLY_MESSAGE:
+        value = &reply->message;
+        break;
+    default:
+        return FALSE;
+    }
+
+    /* check if there is data to escape */
+    if (*value == NULL)
+        return TRUE;
+
+    /* check number of characters to escape */
+    for (str = *value; *str; ++str)
+        switch (*str) {
+        case '\\':
+        case '\'':
+            size += 1;
+        }
+
+    /* string length (remember about null terminator) */
+    size += str - *value + 1;
+
+    /* allocate required escape buffer */
+    if ((escape = malloc(size)) == NULL)
+        return FALSE;
+
+    /* escape string */
+    for (str = *value, esc = escape; *str; ++str, ++esc)
+        switch (*str) {
+        case '\\':
+        case '\'':
+            *esc++ = '\\';
+        default:
+            *esc = *str;
+        }
+
+    /* finalize string */
+    *esc = '\0';
+
+    /* set new escaped version of string */
+    free(*value);
+    *value = escape;
+
+    return TRUE;
+}
+
+dp_reply_val dp_gearman_reply_field(const char *name)
+{
+    if (name == NULL)
+        return DP_REPLY_UNKNOWN;
+
+    if (!strcmp(name, ":backtrace:"))
+        return DP_REPLY_BACKTRACE;
+    else if (!strcmp(name, ":error:"))
+        return DP_REPLY_ERROR;
+    else if (!strcmp(name, ":status:"))
+        return DP_REPLY_STATUS;
+    else if (!strcmp(name, ":result:"))
+        return DP_REPLY_RESULT;
+    else if (!strcmp(name, ":message:"))
+        return DP_REPLY_MESSAGE;
+    return DP_REPLY_UNKNOWN;
+}
+
+const char *dp_gearman_reply_value(dp_reply *reply, dp_reply_val field)
+{
+    switch (field) {
+    case DP_REPLY_BACKTRACE:
+        return reply->backtrace;
+    case DP_REPLY_ERROR:
+        return reply->error;
+    case DP_REPLY_STATUS:
+        return reply->status;
+    case DP_REPLY_RESULT:
+        return reply->result;
+    case DP_REPLY_MESSAGE:
+        return reply->message;
+    default:
+        return NULL;
+    }
+}
+
+void dp_gearman_reply_free(dp_reply *reply)
+{
+    if (reply != NULL) {
+        free(reply->backtrace);
+        free(reply->error);
+        free(reply->message);
+        free(reply->result);
+        free(reply->status);
+    }
 }
 
 /* basic, logged initialization of MySQL */
@@ -880,6 +999,21 @@ void dp_sigterm(int signal)
 {
     /* dispatcher should terminate */
     terminate_flag = TRUE;
+}
+
+dp_bool dp_status_init()
+{
+    /* initialize status array */
+    for (size_t i = 0; i < QUEUE_LIMIT; ++i) {
+        /* clear task */
+        dp_mysql_task_clear(&child_status[i].task);
+
+        /* clear other info */
+        child_status[i].pid = 0;
+        child_status[i].null = TRUE;
+    }
+
+    return TRUE;
 }
 
 void dp_status_update(int32_t *queue_counter)
