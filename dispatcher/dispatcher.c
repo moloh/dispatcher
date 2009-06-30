@@ -36,7 +36,7 @@ int main()
     /* main loop */
     while (TRUE) {
         time_t timestamp;
-        dp_bool is_job = FALSE;
+        bool is_job = FALSE;
         dp_task task;
         pid_t pid;
 
@@ -390,7 +390,7 @@ int main()
 /* Load dispatcher configuration file, can be called multiple times.
  * When configuration file is invalid then function return FALSE;
  */
-dp_bool dp_config_init()
+bool dp_config_init()
 {
     FILE *fconfig;
     char buffer[BUFFER_LIMIT];
@@ -398,7 +398,7 @@ dp_bool dp_config_init()
     char name[BUFFER_LIMIT];
     dp_config_val field;
     uint32_t line;
-    dp_bool is_eof = FALSE, is_error = FALSE;
+    bool is_eof = FALSE, is_error = FALSE;
     dp_config config;
 
     /* initialize new config */
@@ -451,7 +451,7 @@ dp_bool dp_config_init()
     return TRUE;
 }
 
-dp_bool dp_signal_init()
+bool dp_signal_init()
 {
     /* setup signals */
     struct sigaction action;
@@ -499,7 +499,7 @@ dp_bool dp_signal_init()
     return TRUE;
 }
 
-dp_bool dp_signal_block(sigset_t *old)
+bool dp_signal_block(sigset_t *old)
 {
     sigset_t mask;
 
@@ -514,7 +514,7 @@ dp_bool dp_signal_block(sigset_t *old)
     return TRUE;
 }
 
-dp_bool dp_signal_restore(sigset_t *restore)
+bool dp_signal_restore(sigset_t *restore)
 {
     /* restore mask */
     sigprocmask(SIG_SETMASK, restore, NULL);
@@ -559,7 +559,7 @@ dp_config_val dp_config_field(const char *name)
     return DP_CONFIG_UNKNOWN;
 }
 
-dp_bool dp_config_set(dp_config *config, dp_config_val field, char *value, dp_bool if_dup)
+bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_dup)
 {
     switch (field) {
     case DP_CONFIG_MYSQL_HOST:
@@ -644,7 +644,7 @@ void dp_config_free(dp_config *config)
 }
 
 /* basic, logged initialization of gearman */
-dp_bool dp_gearman_init(gearman_client_st **client)
+bool dp_gearman_init(gearman_client_st **client)
 {
     if ((*client = gearman_client_create(NULL)) == NULL) {
         dp_logger(LOG_ERR, "Gearman initialization failed");
@@ -666,7 +666,7 @@ dp_bool dp_gearman_init(gearman_client_st **client)
 
 /* TODO: maybe extend it (handle first word (hash, list) correctly, discard end lines and white spaces */
 /* simple "parser" for YAML reply from gearman */
-dp_bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
+bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
 {
     const char *str = result, *end;
     const char *last = result + size;
@@ -733,7 +733,7 @@ dp_bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
 }
 
 /* set single "hash" value from gearman parser */
-dp_bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
+bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 {
     switch (field) {
     case DP_REPLY_BACKTRACE:
@@ -763,7 +763,7 @@ dp_bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
     return TRUE;
 }
 
-dp_bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
+bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
 {
     char **value = NULL;
     char *escape = NULL, *str, *esc;
@@ -876,7 +876,7 @@ void dp_gearman_reply_free(dp_reply *reply)
 }
 
 /* basic, logged initialization of MySQL */
-dp_bool dp_mysql_init(MYSQL **db)
+bool dp_mysql_init(MYSQL **db)
 {
     if ((*db = mysql_init(*db)) == NULL) {
         dp_logger(LOG_ERR, "MySQL initialization error");
@@ -887,7 +887,7 @@ dp_bool dp_mysql_init(MYSQL **db)
 }
 
 /* reusable logged MySQL connect function */
-dp_bool dp_mysql_connect(MYSQL *db)
+bool dp_mysql_connect(MYSQL *db)
 {
     /* check for valid MySQL structure */
     if (!db) return FALSE;
@@ -908,7 +908,7 @@ dp_bool dp_mysql_connect(MYSQL *db)
 }
 
 /* logged MySQL query wrapper with basic recovering */
-dp_bool dp_mysql_query(MYSQL *db, const char *query)
+bool dp_mysql_query(MYSQL *db, const char *query)
 {
     MYSQL_RES *result;
 
@@ -962,7 +962,7 @@ dp_bool dp_mysql_query(MYSQL *db, const char *query)
 
 /* TODO: error checking for mysql_fetch_row */
 /* convert single row into typed task */
-dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
+bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
 {
     char buffer[BUFFER_LIMIT];
     MYSQL_FIELD *field;
@@ -1019,7 +1019,7 @@ dp_bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     return TRUE;
 }
 
-dp_bool dp_mysql_get_int(int *value, MYSQL_RES *result)
+bool dp_mysql_get_int(int *value, MYSQL_RES *result)
 {
     MYSQL_ROW row;
 
@@ -1244,7 +1244,7 @@ void dp_sigusr12(int signal)
         pause_flag = TRUE;
 }
 
-dp_bool dp_status_init()
+bool dp_status_init()
 {
     /* initialize status array */
     for (size_t i = 0; i < QUEUE_LIMIT; ++i) {
@@ -1274,7 +1274,7 @@ void dp_status_update(int32_t *queue_counter)
 
     while ((pid = waitpid(0, &status, WNOHANG)) > 0) {
         dp_child *worker = NULL;
-        dp_bool is_end = FALSE;
+        bool is_end = FALSE;
 
         /* NOTE: we update flag only after successful retrieval of reaped
          * process

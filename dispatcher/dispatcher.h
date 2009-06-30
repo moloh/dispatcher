@@ -40,9 +40,8 @@
 #define DP_CHILD        "worker"
 
 /* internal bool */
-typedef _Bool dp_bool;
-#define TRUE  (_Bool)1
-#define FALSE (_Bool)0
+#define TRUE  true
+#define FALSE false
 
 #if 0
 #undef LOG_WARNING
@@ -98,7 +97,7 @@ typedef struct dp_child {
     pid_t pid;      /* pid of child */
     dp_task task;   /* task associated with child */
     time_t stamp;   /* stamp associated with child */
-    dp_bool null;   /* indicate empty entry */
+    bool null;   /* indicate empty entry */
 } dp_child;
 
 /* task reply definition structure */
@@ -159,29 +158,29 @@ dp_child child_status[QUEUE_LIMIT]; /* array of child status */
 dp_config cfg;                      /* global configuration object */
 
 /* internal functions */
-dp_bool dp_config_init    ();                  /* initialize configuration */
-dp_bool dp_signal_init    ();                  /* initialize signal handling (logged) */
-dp_bool dp_signal_block   (sigset_t *old);     /* block SIGCHLD and return old mask */
-dp_bool dp_signal_restore (sigset_t *restore); /* restore old mask */
+bool dp_config_init    ();                  /* initialize configuration */
+bool dp_signal_init    ();                  /* initialize signal handling (logged) */
+bool dp_signal_block   (sigset_t *old);     /* block SIGCHLD and return old mask */
+bool dp_signal_restore (sigset_t *restore); /* restore old mask */
 
 dp_config_val dp_config_field (const char *name);                                                    /* get config field id */
-dp_bool       dp_config_set   (dp_config *config, dp_config_val field, char *value, dp_bool if_dup); /* assign field value in config */
+bool       dp_config_set   (dp_config *config, dp_config_val field, char *value, bool if_dup); /* assign field value in config */
 void          dp_config_free  (dp_config *config);                                                   /* free data associated with config */
 
-dp_bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
-dp_bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
+bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
+bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
 
 dp_reply_val dp_gearman_reply_field  (const char *name);                                       /* get task reply field id from name */
 const char  *dp_gearman_reply_value  (dp_reply *reply, dp_reply_val field);                    /* get value of reply field */
-dp_bool      dp_gearman_reply_set    (dp_reply *reply, dp_reply_val field, char *value);       /* assign field value in reply */
-dp_bool      dp_gearman_reply_escape (dp_reply *reply, dp_reply_val field);                    /* escape field value in reply */
+bool      dp_gearman_reply_set    (dp_reply *reply, dp_reply_val field, char *value);       /* assign field value in reply */
+bool      dp_gearman_reply_escape (dp_reply *reply, dp_reply_val field);                    /* escape field value in reply */
 void         dp_gearman_reply_free   (dp_reply *reply);                                        /* free data associated with reply */
 
-dp_bool dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
-dp_bool dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
-dp_bool dp_mysql_query      (MYSQL *db, const char *query);            /* execute MySQL query (logged), recover */
-dp_bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result);        /* extract MySQL stored task (logged) */
-dp_bool dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract MySQL int variable (logged) */
+bool dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
+bool dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
+bool dp_mysql_query      (MYSQL *db, const char *query);            /* execute MySQL query (logged), recover */
+bool dp_mysql_get_task   (dp_task *task, MYSQL_RES *result);        /* extract MySQL stored task (logged) */
+bool dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract MySQL int variable (logged) */
 
 void    dp_mysql_task_free  (dp_task *task);                           /* free data associated with task */
 void    dp_mysql_task_clear (dp_task *task);                           /* clear data associated with task */
@@ -203,7 +202,7 @@ void    dp_sighup        (int signal);                                         /
 void    dp_sigtermint    (int signal);                                         /* SIGTERM handler */
 void    dp_sigusr12      (int signal);                                         /* SIGUSR12 handler */
 
-dp_bool dp_status_init   ();                                                   /* initialize child_status table */
+bool dp_status_init   ();                                                   /* initialize child_status table */
 void    dp_status_update (int32_t *queue_counter);                             /* process child_status table */
 void    dp_status_timeout(time_t timestamp, int32_t *queue_counter);           /* process child_status table timeouts */
 

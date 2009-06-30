@@ -1,3 +1,7 @@
+????-??-?? dispatcher
+
+* use standard bool instead of custom typedef
+
 2009-06-29 dispatcher 0.9.92
 
 * extend children management (kill,timeouts)
