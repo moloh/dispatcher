@@ -34,27 +34,10 @@
 #define QUEUE_LIMIT        50    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        8192  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
-#define SENSE_LIMIT        30    /* sense log delay */
-#define TERMINATE_LIMIT    5     /* sense when terminated log delay */
-#define PAUSE_LIMIT        15    /* sense when paused log delay */
-#define SLEEP_TIMEOUT      1     /* main loop timeout */
-#define TIMESTAMP_DELAY    5*60  /* task execution delay */
 
 /* syslog identifiers */
 #define DP_PARENT       "dispatcher"
 #define DP_CHILD        "worker"
-
-/* mysql server info */
-#define DP_MYSQL_HOST   "devdba"
-#define DP_MYSQL_USER   "root"
-#define DP_MYSQL_PASSWD "Ohio"
-#define DP_MYSQL_DB     "processqueue_dev"
-#define DP_MYSQL_PORT   0
-#define DP_MYSQL_TABLE  "deferred_tasks_new"
-
-/* gearman server info */
-#define DP_GEARMAN_HOST "dev"
-#define DP_GEARMAN_PORT 7003
 
 /* internal bool */
 typedef _Bool dp_bool;
@@ -70,30 +53,61 @@ typedef _Bool dp_bool;
 #define LOG_INFO LOG_ERR
 #endif
 
+/* dispatcher configuration */
+typedef struct dp_config {
+    struct mysql {
+        char *host;
+        char *db;
+        char *user;
+        char *passwd;
+        char *table;
+        int port;
+    } mysql;
+
+    struct gearman {
+        char *host;
+        int port;
+    } gearman;
+
+    struct delay {
+        uint16_t task_failed;
+        uint16_t task_timeout;
+    } delay;
+
+    struct sense {
+        uint16_t loop;
+        uint16_t terminated;
+        uint16_t paused;
+    } sense;
+
+    uint16_t sleep_loop;
+} dp_config;
+
 /* task definition structure */
 typedef struct dp_task {
-    int id;
-    int priority;
-    char *type;
-    char *description;
-    char *status;
-    time_t run_after;
+    int id;            /* id number of the task */
+    int priority;      /* priority of the task */
+    char *type;        /* function name for gearman */
+    char *description; /* function parameters for gearman */
+    char *status;      /* task status, i.e. new, working, done */
+    time_t run_after;  /* timestamp for delayed execution, timeouts handling */
 } dp_task;
 
 /* child definition structure */
 typedef struct dp_child {
     pid_t pid;      /* pid of child */
     dp_task task;   /* task associated with child */
+    time_t stamp;   /* stamp associated with child */
     dp_bool null;   /* indicate empty entry */
 } dp_child;
 
 /* task reply definition structure */
 typedef struct dp_reply {
-    char *backtrace;
-    char *error;
-    char *status;
-    char *result;
-    char *message;
+    char *backtrace; /* backtrace field from task reply */
+    char *error;     /* error field from task reply */
+    char *status;    /* status field from task reply */
+    char *result;    /* result field from task reply */
+    char *message;   /* message field from task reply */
 } dp_reply;
 
 /* task reply field ids */
@@ -106,6 +120,25 @@ typedef enum dp_reply_val {
     DP_REPLY_MESSAGE,
 } dp_reply_val;
 
+/* configuration fields ids */
+typedef enum dp_config_val {
+    DP_CONFIG_UNKNOWN,
+    DP_CONFIG_MYSQL_HOST,
+    DP_CONFIG_MYSQL_DB,
+    DP_CONFIG_MYSQL_USER,
+    DP_CONFIG_MYSQL_PASSWD,
+    DP_CONFIG_MYSQL_TABLE,
+    DP_CONFIG_MYSQL_PORT,
+    DP_CONFIG_GEARMAN_HOST,
+    DP_CONFIG_GEARMAN_PORT,
+    DP_CONFIG_DELAY_TASK_FAILED,
+    DP_CONFIG_DELAY_TASK_TIMEOUT,
+    DP_CONFIG_SENSE_LOOP,
+    DP_CONFIG_SENSE_TERMINATED,
+    DP_CONFIG_SENSE_PAUSED,
+    DP_CONFIG_SLEEP_LOOP
+} dp_config_val;
+
 /* global flag to indicate child state change */
 volatile sig_atomic_t child_flag = FALSE;
 
@@ -115,22 +148,33 @@ volatile sig_atomic_t pause_flag = FALSE;
 /* global flag to terminate dispatcher */
 volatile sig_atomic_t terminate_flag = FALSE;
 
+/* global flag to reload configuration */
+volatile sig_atomic_t reload_flag = FALSE;
+
 /* global status variables */
 int      child_counter = 0;         /* current number of running children */
 dp_child child_status[QUEUE_LIMIT]; /* array of child status */
 
+/* global configuration */
+dp_config cfg;                      /* global configuration object */
+
 /* internal functions */
+dp_bool dp_config_init    ();                  /* initialize configuration */
 dp_bool dp_signal_init    ();                  /* initialize signal handling (logged) */
 dp_bool dp_signal_block   (sigset_t *old);     /* block SIGCHLD and return old mask */
 dp_bool dp_signal_restore (sigset_t *restore); /* restore old mask */
+
+dp_config_val dp_config_field (const char *name);                                                    /* get config field id */
+dp_bool       dp_config_set   (dp_config *config, dp_config_val field, char *value, dp_bool if_dup); /* assign field value in config */
+void          dp_config_free  (dp_config *config);                                                   /* free data associated with config */
 
 dp_bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
 dp_bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
 
 dp_reply_val dp_gearman_reply_field  (const char *name);                                       /* get task reply field id from name */
 const char  *dp_gearman_reply_value  (dp_reply *reply, dp_reply_val field);                    /* get value of reply field */
-dp_bool      dp_gearman_reply_set    (dp_reply *reply, dp_reply_val field, char *value);       /* assign name value to reply */
-dp_bool      dp_gearman_reply_escape (dp_reply *reply, dp_reply_val field);                    /* escape name value in reply */
+dp_bool      dp_gearman_reply_set    (dp_reply *reply, dp_reply_val field, char *value);       /* assign field value in reply */
+dp_bool      dp_gearman_reply_escape (dp_reply *reply, dp_reply_val field);                    /* escape field value in reply */
 void         dp_gearman_reply_free   (dp_reply *reply);                                        /* free data associated with reply */
 
 dp_bool dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
@@ -153,11 +197,16 @@ char   *dp_struchr       (const char *str, size_t length, char character);     /
 char   *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
 char   *dp_strcat        (const char *str, ...)                                /* concatenate string helper */
                           ATTRIBUTE_SENTINEL;
+
 void    dp_sigchld       (int signal);                                         /* SIGCHLD handler */
 void    dp_sighup        (int signal);                                         /* SIGHUP handler */
-void    dp_sigterm       (int signal);                                         /* SIGTERM handler */
+void    dp_sigtermint    (int signal);                                         /* SIGTERM handler */
+void    dp_sigusr12      (int signal);                                         /* SIGUSR12 handler */
+
 dp_bool dp_status_init   ();                                                   /* initialize child_status table */
 void    dp_status_update (int32_t *queue_counter);                             /* process child_status table */
+void    dp_status_timeout(time_t timestamp, int32_t *queue_counter);           /* process child_status table timeouts */
 
 dp_child *dp_child_null ();           /* find first null entry in child_status array */
 dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */
+

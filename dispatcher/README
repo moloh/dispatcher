@@ -1,0 +1,9 @@
+
+Dispatcher control interface:
+* SIGHUP - safely reload configuration file (dispatcher.conf)
+* SIGTERM - gracefully terminate, wait for all children to finish
+* SIGUSR1,SIGUSR2 - pause, unpause dispatching
+
+Many aspects of logging can be adjusted using configuration file, look for
+specific help in the dispatcher.conf file.
+

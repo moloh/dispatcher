@@ -1,7 +1,16 @@
-# basic variables
-PREFIX = @prefix@
+# configure basic variables
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+bindir = @bindir@
+sysconfdir = @sysconfdir@
+
+# basic programs
 CC = @CC@
 INSTALL = @INSTALL@
+MKDIR_P = @MKDIR_P@
+
+# basic variables
+DEFINES = @DEFS@ -DDP_CONFIG="\"$(sysconfdir)\""
 CFLAGS = @CFLAGS@
 LDFLAGS = @LDFLAGS@
 
@@ -18,7 +27,7 @@ HEADER = dispatcher.h
 OBJECT = dispatcher.o
 
 # setup final compiler flags
-CFLAGS_REAL = $(CFLAGS) $(MYSQL_CFLAGS) $(GEARMAN_CFLAGS)
+CFLAGS_REAL = ${DEFINES} $(CFLAGS) $(MYSQL_CFLAGS) $(GEARMAN_CFLAGS)
 LDFLAGS_REAL = $(LDFLAGS) $(MYSQL_LDFLAGS) $(GEARMAN_LDFLAGS)
 
 all: dispatcher
@@ -37,6 +46,9 @@ distclean: clean
 	rm -rf autom4te.cache .deps
 
 install:
-	$(INSTALL) -m 755 dispatcher $(PREFIX)/bin
+	$(MKDIR_P) $(DESTDIR)$(bindir)
+	$(INSTALL) -m 755 dispatcher $(DESTDIR)$(bindir)
+	$(MKDIR_P) $(DESTDIR)$(sysconfdir)
+	$(INSTALL) -m 644 dispatcher.conf $(DESTDIR)$(sysconfdir)
 
 .PHONY: all clean distclean install

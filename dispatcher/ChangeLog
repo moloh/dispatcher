@@ -1,3 +1,9 @@
+2009-06-29 dispatcher 0.9.92
+
+* extend children management (kill,timeouts)
+* implement config file handling
+* use DESTDIR in Makefile.in
+
 2009-06-16 dispatcher 0.9.91
 
 * increase query limit size (maybe heap based limit would be better in future)
