@@ -33,6 +33,8 @@ int main()
         return EXIT_FAILURE;
     }
 
+    printf("Dispatcher started, check syslog for details\n");
+
     /* main loop */
     while (TRUE) {
         time_t timestamp;
@@ -406,8 +408,10 @@ bool dp_config_init()
 
     /* open configuration file */
     fconfig = fopen(DP_CONFIG"/dispatcher.conf", "r");
-    if (fconfig == NULL)
+    if (fconfig == NULL) {
+	fprintf(stderr, "Unable to find " DP_CONFIG"/dispatcher.conf\n");
         return FALSE;
+    }
 
     /* read each line separately */
     for (line = 1; fgets(buffer, BUFFER_LIMIT, fconfig); ++line) {
