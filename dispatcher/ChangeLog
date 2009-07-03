@@ -1,6 +1,7 @@
-????-??-?? dispatcher
+2009-07-03 dispatcher 0.9.93
 
 * use standard bool instead of custom typedef
+* use new table, add some more output useful for debugging
 
 2009-06-29 dispatcher 0.9.92
 
