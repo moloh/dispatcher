@@ -756,6 +756,8 @@ bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
 bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 {
     switch (field) {
+    case DP_REPLY_UNKNOWN:
+        return FALSE;
     case DP_REPLY_BACKTRACE:
         if (reply->backtrace) free(reply->backtrace);
         reply->backtrace = value;
@@ -776,8 +778,6 @@ bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
         if (reply->message) free(reply->message);
         reply->message = value;
         break;
-    default:
-        return FALSE;
     }
 
     return TRUE;
@@ -790,6 +790,8 @@ bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
     size_t size = 0;
 
     switch (field) {
+    case DP_REPLY_UNKNOWN:
+        return FALSE;
     case DP_REPLY_BACKTRACE:
         value = &reply->backtrace;
         break;
@@ -805,8 +807,6 @@ bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
     case DP_REPLY_MESSAGE:
         value = &reply->message;
         break;
-    default:
-        return FALSE;
     }
 
     /* check if there is data to escape */
