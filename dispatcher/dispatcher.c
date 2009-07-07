@@ -409,7 +409,7 @@ bool dp_config_init()
     /* open configuration file */
     fconfig = fopen(DP_CONFIG"/dispatcher.conf", "r");
     if (fconfig == NULL) {
-	fprintf(stderr, "Unable to find " DP_CONFIG"/dispatcher.conf\n");
+        fprintf(stderr, "Unable to find "DP_CONFIG"/dispatcher.conf\n");
         return FALSE;
     }
 

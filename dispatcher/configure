@@ -5273,9 +5273,9 @@ fi
 
 
 if test x$enable_DEBUG = xyes; then
-    CFLAGS="-g -O0 -pedantic -Wall $CFLAGS"
+    CFLAGS="-g -O0 -pedantic -Wall -Wextra $CFLAGS"
 elif test x$enable_RELEASE = xyes; then
-    CFLAGS="-Os -pedantic -Wall $CFLAGS"
+    CFLAGS="-Os -pedantic -Wall -Wextra $CFLAGS"
 fi
 
 # custom flags

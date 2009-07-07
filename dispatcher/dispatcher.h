@@ -50,7 +50,7 @@
 
 /* dispatcher configuration */
 typedef struct dp_config {
-    struct mysql {
+    struct {
         char *host;
         char *db;
         char *user;
@@ -59,22 +59,22 @@ typedef struct dp_config {
         int port;
     } mysql;
 
-    struct gearman {
+    struct {
         char *host;
         int port;
     } gearman;
 
-    struct delay {
+    struct {
         uint16_t task_failed;
         uint16_t task_timeout;
     } delay;
 
-    struct log {
+    struct {
         char *dispatcher;
         char *worker;
     } log;
 
-    struct sense {
+    struct {
         uint16_t loop;
         uint16_t terminated;
         uint16_t paused;
