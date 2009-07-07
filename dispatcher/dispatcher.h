@@ -36,8 +36,8 @@
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 
 /* syslog identifiers */
-#define DP_PARENT       "dispatcher"
-#define DP_CHILD        "worker"
+#define DP_PARENT       "nexopia-dispatcher"
+#define DP_CHILD        "nexopia-dispatcher-worker"
 
 /* internal bool */
 #define TRUE  true
