@@ -1,4 +1,7 @@
 
+Dispatcher invocation:
+* ./dispatcher -h explains basic command line parameters
+
 Dispatcher control interface:
 * SIGHUP - safely reload configuration file (dispatcher.conf)
 * SIGTERM - gracefully terminate, wait for all children to finish

@@ -1,7 +1,9 @@
-2009-07-?? dispatcher ??????
+2009-07-07 dispatcher 0.9.94
 
 * small changes: config structures are anonymous, extra warnings
 * make syslog ids values configurable for dispatcher and worker
+* add basic command line processing, make possible to override configuration
+file location
 
 2009-07-03 dispatcher 0.9.93
 
