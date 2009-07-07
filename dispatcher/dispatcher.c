@@ -18,7 +18,7 @@ int main()
         return EXIT_FAILURE;
 
     /* initialize logger */
-    dp_logger_init(DP_PARENT);
+    dp_logger_init(cfg.log.dispatcher);
 
     /* global MySQL initialize */
     my_init();
@@ -237,7 +237,7 @@ int main()
                 const char *value;
 
                 /* initialize logger */
-                dp_logger_init(DP_CHILD);
+                dp_logger_init(cfg.log.worker);
 
                 dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
                           queue_counter + 1, QUEUE_LIMIT, worker->task.id);
@@ -551,6 +551,10 @@ dp_config_val dp_config_field(const char *name)
         return DP_CONFIG_DELAY_TASK_FAILED;
     if (!strcmp(name, "delay_task_timeout"))
         return DP_CONFIG_DELAY_TASK_TIMEOUT;
+    if (!strcmp(name, "log_dispatcher"))
+        return DP_CONFIG_LOG_DISPATCHER;
+    if (!strcmp(name, "log_worker"))
+        return DP_CONFIG_LOG_WORKER;
     if (!strcmp(name, "sense_loop"))
         return DP_CONFIG_SENSE_LOOP;
     if (!strcmp(name, "sense_terminated"))
@@ -566,6 +570,8 @@ dp_config_val dp_config_field(const char *name)
 bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_dup)
 {
     switch (field) {
+    case DP_CONFIG_UNKNOWN:
+        return FALSE;
     case DP_CONFIG_MYSQL_HOST:
         if (config->mysql.host) free(config->mysql.host);
         if (!if_dup) config->mysql.host = value;
@@ -612,6 +618,16 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         if (sscanf(value, "%" SCNu16, &config->delay.task_timeout) != 1)
             return FALSE;
         break;
+    case DP_CONFIG_LOG_DISPATCHER:
+        if (config->log.dispatcher) free(config->log.dispatcher);
+        if (!if_dup) config->log.dispatcher = value;
+        else config->log.dispatcher = dp_strdup(value);
+        break;
+    case DP_CONFIG_LOG_WORKER:
+        if (config->log.worker) free(config->log.worker);
+        if (!if_dup) config->log.worker = value;
+        else config->log.worker = dp_strdup(value);
+        break;
     case DP_CONFIG_SENSE_LOOP:
         if (sscanf(value, "%" SCNu16, &config->sense.loop) != 1)
             return FALSE;
@@ -628,8 +644,6 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         if (sscanf(value, "%" SCNu16, &config->sleep_loop) != 1)
             return FALSE;
         break;
-    default:
-        return FALSE;
     }
 
     return TRUE;
@@ -644,6 +658,8 @@ void dp_config_free(dp_config *config)
         free(config->mysql.passwd);
         free(config->mysql.table);
         free(config->gearman.host);
+        free(config->log.dispatcher);
+        free(config->log.worker);
     }
 }
 

@@ -35,10 +35,6 @@
 #define QUERY_LIMIT        8192  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 
-/* syslog identifiers */
-#define DP_PARENT       "nexopia-dispatcher"
-#define DP_CHILD        "nexopia-dispatcher-worker"
-
 /* internal bool */
 #define TRUE  true
 #define FALSE false
@@ -72,6 +68,11 @@ typedef struct dp_config {
         uint16_t task_failed;
         uint16_t task_timeout;
     } delay;
+
+    struct log {
+        char *dispatcher;
+        char *worker;
+    } log;
 
     struct sense {
         uint16_t loop;
@@ -132,6 +133,8 @@ typedef enum dp_config_val {
     DP_CONFIG_GEARMAN_PORT,
     DP_CONFIG_DELAY_TASK_FAILED,
     DP_CONFIG_DELAY_TASK_TIMEOUT,
+    DP_CONFIG_LOG_DISPATCHER,
+    DP_CONFIG_LOG_WORKER,
     DP_CONFIG_SENSE_LOOP,
     DP_CONFIG_SENSE_TERMINATED,
     DP_CONFIG_SENSE_PAUSED,
