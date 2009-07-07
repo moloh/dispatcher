@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
         /* Check if we should reload configuration */
         if (reload_flag == TRUE) {
             dp_logger(LOG_WARNING, "Reloading configuration...");
-            fprintf(stderr, "Reloading configuration...""\n");
+            fprintf(stderr, "Reloading configuration...\n");
 
             /* reload configuration
              * NOTE: this function automatically merges configuration and
@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
                  */
                 if (terminate_counter < 0) {
                     dp_logger(LOG_WARNING, "Terminating... Waiting for children");
-                    fprintf(stderr, "Terminating... Waiting for children""\n");
+                    fprintf(stderr, "Terminating... Waiting for children\n");
                     terminate_counter = 0;
                 }
 
@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
                     terminate_counter++ >= cfg.sense.terminated) {
 
                     dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, QUEUE_LIMIT);
-                    fprintf(stderr, "(%d/%d) Terminating...""\n", queue_counter, QUEUE_LIMIT);
+                    fprintf(stderr, "(%d/%d) Terminating...\n", queue_counter, QUEUE_LIMIT);
                     terminate_counter = 0;
                 }
 
@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
                  */
                 if (queue_counter <= 0) {
                     dp_logger(LOG_WARNING, "Terminated");
-                    fprintf(stderr, "Terminated""\n");
+                    fprintf(stderr, "Terminated\n");
                     break;
                 }
             }
@@ -481,7 +481,7 @@ bool dp_config_init()
         dp_config_free(&config);
         if (initialized)
             dp_logger(LOG_ERR, "Invalid configuration file at line (%"SCNu32")", line);
-        fprintf(stderr, "Invalid configuration file at line (%"SCNu32")""\n", line);
+        fprintf(stderr, "Invalid configuration file at line (%"SCNu32")\n", line);
         return FALSE;
     }
 
@@ -1272,24 +1272,36 @@ retval:
 
 void dp_sigchld(int signal)
 {
+    /* remove unused parameter warning */
+    (void)signal;
+
     /* update flag to note pending processing */
     child_flag = TRUE;
 }
 
 void dp_sighup(int signal)
 {
+    /* remove unused parameter warning */
+    (void)signal;
+
     /* dispatcher should reload configuration */
     reload_flag = TRUE;
 }
 
 void dp_sigtermint(int signal)
 {
+    /* remove unused parameter warning */
+    (void)signal;
+
     /* dispatcher should terminate */
     terminate_flag = TRUE;
 }
 
 void dp_sigusr12(int signal)
 {
+    /* remove unused parameter warning */
+    (void)signal;
+
     /* Toggle flag to pause or resume dispatching */
     if (pause_flag == TRUE)
         pause_flag = FALSE;
