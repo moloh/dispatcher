@@ -2,7 +2,7 @@
 
 /* TODO: portable printf format for pid_t (now %d) */
 
-int main()
+int main(int argc, char *argv[])
 {
     int32_t queue_counter = child_counter; /* number of jobs in queue */
     int32_t sense_counter = 0;             /* number of empty iterations (queue not full) */
@@ -10,12 +10,35 @@ int main()
     int32_t pause_counter = 0;             /* number of pause iterations */
     char query[QUERY_LIMIT];               /* query buffer */
     MYSQL *db = NULL;
+    int option;
+
+    const char *usage =
+        "Usage: "PACKAGE_NAME" [OPTIONS...]\n"
+        " -h\t\tPrint this help information\n"
+        " -f <file>\tOverride configuration file location\n";
+
+    /* process command line parameters */
+    while ((option = getopt(argc, argv, "f:h")) != -1)
+        switch (option) {
+            case 'f':
+                cfg_location = optarg;
+                break;
+            case 'h':
+                printf(usage);
+                return EXIT_SUCCESS;
+            case '?':
+                printf(usage);
+                return EXIT_FAILURE;
+        }
 
     /* initialize signal and status processing */
     if (!dp_config_init() ||
         !dp_status_init() ||
         !dp_signal_init())
         return EXIT_FAILURE;
+
+    /* specify that we are initialized */
+    initialized = TRUE;
 
     /* initialize logger */
     dp_logger_init(cfg.log.dispatcher);
@@ -391,6 +414,8 @@ int main()
 
 /* Load dispatcher configuration file, can be called multiple times.
  * When configuration file is invalid then function return FALSE;
+ * NOTE: we log in syslog configuration related issues only after
+ *       initialization is complete, i.e. on reload
  */
 bool dp_config_init()
 {
@@ -406,10 +431,17 @@ bool dp_config_init()
     /* initialize new config */
     memset(&config, 0, sizeof(dp_config));
 
+    /* extract config location */
+    const char *config_location = (cfg_location == NULL)?
+        DP_CONFIG"/dispatcher.conf":
+        cfg_location;
+
     /* open configuration file */
-    fconfig = fopen(DP_CONFIG"/dispatcher.conf", "r");
+    fconfig = fopen(config_location, "r");
     if (fconfig == NULL) {
-        fprintf(stderr, "Unable to find "DP_CONFIG"/dispatcher.conf\n");
+        if (initialized)
+            dp_logger(LOG_ERR, "Unable to find configuration file: '%s'", config_location);
+        fprintf(stderr, "Unable to find configuration file: '%s'\n", config_location);
         return FALSE;
     }
 
@@ -447,8 +479,9 @@ bool dp_config_init()
         cfg = config;
     } else {
         dp_config_free(&config);
-        dp_logger(LOG_ERR, "Invalid configuration file at line (%"SCNu32")", line);
-        fprintf(stderr, "Invalid configuration file at line (%"SCNu32")\n", line);
+        if (initialized)
+            dp_logger(LOG_ERR, "Invalid configuration file at line (%"SCNu32")", line);
+        fprintf(stderr, "Invalid configuration file at line (%"SCNu32")""\n", line);
         return FALSE;
     }
 

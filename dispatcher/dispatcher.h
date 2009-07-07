@@ -11,7 +11,7 @@
 #include <ctype.h>    /* isspace */
 
 /* other headers */
-#include <unistd.h>             /* sleep, fork */
+#include <unistd.h>             /* sleep, fork, getopt */
 #include <signal.h>             /* SIGCHLD handling */
 #include <sys/wait.h>           /* wait */
 #include <syslog.h>             /* system log */
@@ -158,7 +158,11 @@ int      child_counter = 0;         /* current number of running children */
 dp_child child_status[QUEUE_LIMIT]; /* array of child status */
 
 /* global configuration */
+const char *cfg_location = NULL;    /* configuration file location override */
 dp_config cfg;                      /* global configuration object */
+
+/* global state flags */
+bool initialized = FALSE;           /* flag to indicate basic initialization */
 
 /* internal functions */
 bool dp_config_init    ();                  /* initialize configuration */
