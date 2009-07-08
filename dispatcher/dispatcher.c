@@ -1421,8 +1421,6 @@ void dp_status_update(int32_t *queue_counter)
         *queue_counter = child_counter;
 }
 
-#include <errno.h>
-
 void dp_status_timeout(time_t timestamp, int32_t *queue_counter)
 {
     /* process possible timeouts */
