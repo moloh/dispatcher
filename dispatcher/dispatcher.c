@@ -1223,7 +1223,7 @@ char *dp_strcat(const char *str, ...)
 void dp_logger_init(const char *ident)
 {
     closelog();
-    openlog(ident, LOG_PID, LOG_DAEMON);
+    openlog(ident, LOG_PID, LOG_LOCAL2);
 }
 
 void dp_logger(int priority, const char *message, ...)
