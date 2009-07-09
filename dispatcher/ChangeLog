@@ -1,3 +1,7 @@
+2009-07-?? dispatcher 0.9.??
+
+* store complete worker result in the database instead just of status
+
 2009-07-07 dispatcher 0.9.94
 
 * small changes: config structures are anonymous, extra warnings

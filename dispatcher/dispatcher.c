@@ -1328,7 +1328,7 @@ int dp_asprintf(char **str, const char *format, ...)
 
 #ifdef HAVE_ASPRINTF
     retval = vasprintf(str, format, arg);
-#else
+#else /* HAVE_ASPRINTF */
     char character;
     int size;
 
@@ -1349,9 +1349,8 @@ int dp_asprintf(char **str, const char *format, ...)
         goto retval;
     }
 
-#endif
-
 retval:
+#endif /* HAVE_ASPRINTF */
     va_end(arg);
     return retval;
 }

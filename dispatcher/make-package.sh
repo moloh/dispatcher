@@ -1,5 +1,7 @@
 #!/bin/bash -e
 
+# lets update configure and config.h.in
+autoheader
 autoconf
 
 RELEASE="$(grep PACKAGE_VERSION= ./configure | sed -e 's/[^0-9.]//g')"
