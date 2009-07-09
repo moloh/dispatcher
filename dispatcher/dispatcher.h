@@ -77,6 +77,8 @@ typedef struct dp_config {
     struct {
         char *dispatcher;
         char *worker;
+        int level;
+        int facility;
     } log;
 
     struct {
@@ -87,6 +89,11 @@ typedef struct dp_config {
 
     uint16_t sleep_loop;
 } dp_config;
+
+typedef struct dp_enum {
+    const char *name;
+    int value;
+} dp_enum;
 
 /* task definition structure */
 typedef struct dp_task {
@@ -140,11 +147,41 @@ typedef enum dp_config_val {
     DP_CONFIG_DELAY_TASK_TIMEOUT,
     DP_CONFIG_LOG_DISPATCHER,
     DP_CONFIG_LOG_WORKER,
+    DP_CONFIG_LOG_LEVEL,
+    DP_CONFIG_LOG_FACILITY,
     DP_CONFIG_SENSE_LOOP,
     DP_CONFIG_SENSE_TERMINATED,
     DP_CONFIG_SENSE_PAUSED,
     DP_CONFIG_SLEEP_LOOP
 } dp_config_val;
+
+/* define supported facilites in configuration file */
+dp_enum dp_log_facility[] = {
+    {"LOG_USER", LOG_USER},
+    {"LOG_DAEMON", LOG_DAEMON},
+    {"LOG_LOCAL0", LOG_LOCAL0},
+    {"LOG_LOCAL1", LOG_LOCAL1},
+    {"LOG_LOCAL2", LOG_LOCAL2},
+    {"LOG_LOCAL3", LOG_LOCAL3},
+    {"LOG_LOCAL4", LOG_LOCAL4},
+    {"LOG_LOCAL5", LOG_LOCAL5},
+    {"LOG_LOCAL6", LOG_LOCAL6},
+    {"LOG_LOCAL7", LOG_LOCAL7},
+    {NULL, 0}
+};
+
+/* define supported levels in configuration file */
+dp_enum dp_log_level[] = {
+    {"LOG_EMERG", LOG_EMERG},
+    {"LOG_ALERT", LOG_ALERT},
+    {"LOG_CRIT", LOG_CRIT},
+    {"LOG_ERR", LOG_ERR},
+    {"LOG_WARNING", LOG_WARNING},
+    {"LOG_NOTICE", LOG_NOTICE},
+    {"LOG_INFO", LOG_INFO},
+    {"LOG_DEBUG", LOG_DEBUG},
+    {NULL, 0}
+};
 
 /* global flag to indicate child state change */
 volatile sig_atomic_t child_flag = FALSE;
@@ -201,6 +238,10 @@ void  dp_mysql_task_clear (dp_task *task);                           /* clear da
 void  dp_logger_init   (const char *ident);                                  /* initialize logging capabilities */
 void  dp_logger        (int priority, const char *message, ...)              /* log message with specific priority */
                         ATTRIBUTE_PRINTF(2,3);
+
+dp_enum *dp_enum_name (dp_enum *self, const char *name);                     /* extract specific enum by name */
+dp_enum *dp_enum_value(dp_enum *self, int value);                            /* extract specific enum by value */
+
 int   dp_asprintf      (char **strp, const char *format, ...)                /* portability wrapper, allocated sprintf */
                         ATTRIBUTE_PRINTF(2,3);
 char *dp_strdup        (const char *str);                                    /* dup string helper */

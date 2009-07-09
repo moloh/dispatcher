@@ -603,6 +603,10 @@ dp_config_val dp_config_field(const char *name)
         return DP_CONFIG_LOG_DISPATCHER;
     if (!strcmp(name, "log_worker"))
         return DP_CONFIG_LOG_WORKER;
+    if (!strcmp(name, "log_level"))
+        return DP_CONFIG_LOG_LEVEL;
+    if (!strcmp(name, "log_facility"))
+        return DP_CONFIG_LOG_FACILITY;
     if (!strcmp(name, "sense_loop"))
         return DP_CONFIG_SENSE_LOOP;
     if (!strcmp(name, "sense_terminated"))
@@ -617,6 +621,8 @@ dp_config_val dp_config_field(const char *name)
 
 bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_dup)
 {
+    dp_enum *enumeration;
+
     switch (field) {
     case DP_CONFIG_UNKNOWN:
         return FALSE;
@@ -675,6 +681,16 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         if (config->log.worker) free(config->log.worker);
         if (!if_dup) config->log.worker = value;
         else config->log.worker = dp_strdup(value);
+        break;
+    case DP_CONFIG_LOG_LEVEL:
+        if ((enumeration = dp_enum_name(dp_log_level, value)) == NULL)
+            return FALSE;
+        config->log.level = enumeration->value;
+        break;
+    case DP_CONFIG_LOG_FACILITY:
+        if ((enumeration = dp_enum_name(dp_log_facility, value)) == NULL)
+            return FALSE;
+        config->log.facility = enumeration->value;
         break;
     case DP_CONFIG_SENSE_LOOP:
         if (sscanf(value, "%" SCNu16, &config->sense.loop) != 1)
@@ -1303,16 +1319,36 @@ char *dp_struescape(const char *str, size_t length)
 void dp_logger_init(const char *ident)
 {
     closelog();
-    openlog(ident, LOG_PID, LOG_LOCAL2);
+    openlog(ident, LOG_PID, cfg.log.facility);
 }
 
 void dp_logger(int priority, const char *message, ...)
 {
     va_list args;
 
+    /* check if we should log at all */
+    if (priority > cfg.log.level)
+        return;
+
     va_start(args, message);
     vsyslog(priority, message, args);
     va_end(args);
+}
+
+dp_enum *dp_enum_name(dp_enum *self, const char *name)
+{
+    for (; self->name; self += 1)
+        if (!strcmp(self->name, name))
+            return self;
+    return NULL;
+}
+
+dp_enum *dp_enum_value(dp_enum *self, int value)
+{
+    for (; self->name; self += 1)
+        if (self->value == value)
+            return self;
+    return NULL;
 }
 
 int dp_asprintf(char **str, const char *format, ...)
