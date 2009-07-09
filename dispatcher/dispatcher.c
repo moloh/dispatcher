@@ -254,10 +254,10 @@ int main(int argc, char *argv[])
 
                 gearman_client_st *client = NULL;
                 gearman_return_t error;
-                dp_reply reply;
                 void *worker_result = NULL;
                 size_t worker_result_size;
-                const char *value;
+                bool status = FALSE;
+                char *value, *abuffer = NULL;
 
                 /* initialize logger */
                 dp_logger_init(cfg.log.worker);
@@ -318,41 +318,56 @@ int main(int argc, char *argv[])
 
                 /* process reply from gearman */
                 /* NOTE: reply may contain non-escaped characters */
-                dp_gearman_get_reply(&reply, worker_result, worker_result_size);
-
-                /* escape value that we want to write to MySQL */
-                dp_gearman_reply_escape(&reply, DP_REPLY_STATUS);
-                value = dp_gearman_reply_value(&reply, DP_REPLY_STATUS);
+                status = dp_gearman_get_status(worker_result, worker_result_size);
+                value = dp_struescape(worker_result, worker_result_size);
 
                 /* prepare query to database */
-                if (value != NULL && !strcmp(value, ":ok")) {
-
-                    /* limit query result length to QUERY_LIMIT - 512 */
-                    /* TODO: limiting result may make escape invalid */
+                if (status) {
+                    /* update task entry to indicate that it is done */
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE %s "
-                             "SET status = 'done', result = '%.*s', result_timestamp = '%ld' "
+                             "SET status = 'done', result = '', result_timestamp = '%ld' "
                              "WHERE id = %d",
                              cfg.mysql.table,
-                             QUERY_LIMIT - 512, value, timestamp,
+                             timestamp,
                              worker->task.id);
 
+                    /* execute query */
+                    if (!dp_mysql_query(db, query))
+                        return EXIT_FAILURE;
                 } else {
-                    dp_logger(LOG_ERR, "Worker job (%d) result is NOT ok (%s)",
-                              worker->task.id, value);
+                    dp_logger(LOG_ERR, "Worker job (%d) FAILED",
+                              worker->task.id);
 
-                    snprintf(query, QUERY_LIMIT,
-                             "UPDATE %s "
-                             "SET status = 'new', result = '%.*s', run_after = '%ld' "
-                             "WHERE id = %d",
-                             cfg.mysql.table,
-                             QUERY_LIMIT - 512, value, timestamp + cfg.delay.task_failed,
-                             worker->task.id);
+                    /* try to dynamically allocate buffer */
+                    if (dp_asprintf(&abuffer,
+                                    "UPDATE %s "
+                                    "SET status = 'new', result = '%s', run_after = '%ld' "
+                                    "WHERE id = %d",
+                                    cfg.mysql.table,
+                                    value, timestamp + cfg.delay.task_failed,
+                                    worker->task.id) > 0) {
+
+                        /* execute query */
+                        if (!dp_mysql_query(db, abuffer))
+                            return EXIT_FAILURE;
+
+                        free(abuffer);
+                    /* fallback, provide internal error */
+                    } else {
+                        snprintf(query, QUERY_LIMIT,
+                                 "UPDATE %s "
+                                 "SET status = 'new', result = '"ERROR_ASPRINTF"', run_after = '%ld' "
+                                 "WHERE id = %d",
+                                 cfg.mysql.table,
+                                 timestamp + cfg.delay.task_failed,
+                                 worker->task.id);
+
+                        /* execute query */
+                        if (!dp_mysql_query(db, query))
+                            return EXIT_FAILURE;
+                    }
                 }
-
-                /* execute query */
-                if (!dp_mysql_query(db, query))
-                    return EXIT_FAILURE;
 
                 /* close mysql connection */
                 mysql_close(db);
@@ -369,7 +384,7 @@ int main(int argc, char *argv[])
 
                 snprintf(query, QUERY_LIMIT,
                          "UPDATE %s "
-                         "SET status = 'new', result = ':fork', run_after = '%ld' "
+                         "SET status = 'new', result = '"ERROR_FORK"', run_after = '%ld' "
                          "WHERE id = %d",
                          cfg.mysql.table,
                          timestamp,
@@ -785,6 +800,22 @@ bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
     return FALSE;
 }
 
+bool dp_gearman_get_status(const char *result, size_t size)
+{
+    /* find status string */
+    const char *pos = dp_strustr(result, size, ":status: ");
+    if (pos == NULL)
+        return FALSE;
+
+    /* check if we have enough remaining space */
+    const size_t length = pos + 9 + 3 - result;
+    if (length > size || memcmp(pos + 9, ":ok", 3))
+        return FALSE;
+
+    return TRUE;
+}
+
+
 /* set single "hash" value from gearman parser */
 bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 {
@@ -818,9 +849,7 @@ bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 
 bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
 {
-    char **value = NULL;
-    char *escape = NULL, *str, *esc;
-    size_t size = 0;
+    char **value = NULL, *escape;
 
     switch (field) {
     case DP_REPLY_UNKNOWN:
@@ -846,33 +875,10 @@ bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
     if (*value == NULL)
         return TRUE;
 
-    /* check number of characters to escape */
-    for (str = *value; *str; ++str)
-        switch (*str) {
-        case '\\':
-        case '\'':
-            size += 1;
-        }
-
-    /* string length (remember about null terminator) */
-    size += str - *value + 1;
-
-    /* allocate required escape buffer */
-    if ((escape = malloc(size)) == NULL)
-        return FALSE;
-
     /* escape string */
-    for (str = *value, esc = escape; *str; ++str, ++esc)
-        switch (*str) {
-        case '\\':
-        case '\'':
-            *esc++ = '\\';
-        default:
-            *esc = *str;
-        }
-
-    /* finalize string */
-    *esc = '\0';
+    escape = dp_strescape(*value);
+    if (escape == NULL)
+        return FALSE;
 
     /* set new escaped version of string */
     free(*value);
@@ -1220,6 +1226,80 @@ char *dp_strcat(const char *str, ...)
     return cat - size;
 }
 
+char *dp_strescape(const char *str)
+{
+    const char *pos;
+    char *escape, *esc;
+    size_t size = 0;
+
+    /* check if there is data to escape */
+    if (str == NULL)
+        return NULL;
+
+    /* check number of characters to escape */
+    for (pos = str; *pos; ++pos)
+        switch (*pos) {
+        case '\\':
+        case '\'':
+            size += 1;
+        }
+
+    /* string length (remember about null terminator) */
+    size += pos - str + 1;
+
+    /* allocate required escape buffer */
+    if ((escape = malloc(size)) == NULL)
+        return NULL;
+
+    /* escape string */
+    for (pos = str, esc = escape; *pos; ++pos, ++esc)
+        switch (*pos) {
+        case '\\':
+        case '\'':
+            *esc++ = '\\';
+        default:
+            *esc = *pos;
+        }
+
+    /* finalize string */
+    *esc = '\0';
+
+    return escape;
+}
+
+char *dp_struescape(const char *str, size_t length)
+{
+    char *escape, *esc;
+    size_t i, size = length + 1;
+
+    /* check number of characters to escape */
+    for (i = 0; i < length; ++i)
+        switch (str[i]) {
+        case '\\':
+        case '\'':
+            size += 1;
+        }
+
+    /* allocate required escape buffer */
+    if ((escape = malloc(size)) == NULL)
+        return NULL;
+
+    /* escape string */
+    for (i = 0, esc = escape; i < length; ++i, ++esc)
+        switch (str[i]) {
+        case '\\':
+        case '\'':
+            *esc++ = '\\';
+        default:
+            *esc = str[i];
+        }
+
+    /* finalize string */
+    *esc = '\0';
+
+    return escape;
+}
+
 void dp_logger_init(const char *ident)
 {
     closelog();
@@ -1240,6 +1320,7 @@ int dp_asprintf(char **str, const char *format, ...)
     va_list arg;
     int retval = -1;
 
+    /* initialize variadic macros */
     va_start(arg, format);
 
     /* initialize result */
@@ -1259,10 +1340,15 @@ int dp_asprintf(char **str, const char *format, ...)
     if ((*str = malloc(size+1)) == NULL)
         goto retval;
 
+    /* reinitialize variadic macros */
+    va_end(arg);
+    va_start(arg, format);
+
     if ((retval = vsprintf(*str, format, arg)) < 0) {
         free(*str); *str = NULL;
         goto retval;
     }
+
 #endif
 
 retval:

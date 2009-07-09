@@ -35,6 +35,11 @@
 #define QUERY_LIMIT        8192  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 
+/* internal errors for MySQL results */
+/* NOTE: proper escaping for MySQL */
+#define ERROR_ASPRINTF "---\\n:status: :asprintf\\n"
+#define ERROR_FORK     "---\\n:status: :fork\\n"
+
 /* internal bool */
 #define TRUE  true
 #define FALSE false
@@ -176,6 +181,7 @@ void          dp_config_free  (dp_config *config);                              
 
 bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
 bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
+bool dp_gearman_get_status   (const char *result, size_t size);                  /* get status from gearman reply */
 
 dp_reply_val dp_gearman_reply_field  (const char *name);                                 /* get task reply field id from name */
 const char  *dp_gearman_reply_value  (dp_reply *reply, dp_reply_val field);              /* get value of reply field */
@@ -203,6 +209,8 @@ char *dp_struchr       (const char *str, size_t length, char character);     /* 
 char *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
 char *dp_strcat        (const char *str, ...)                                /* concatenate string helper */
                         ATTRIBUTE_SENTINEL;
+char *dp_strescape     (const char *str);                                    /* escape string helper */
+char *dp_struescape    (const char *str, size_t length);                     /* sized escape string helper */
 
 void  dp_sigchld       (int signal);                                         /* SIGCHLD handler */
 void  dp_sighup        (int signal);                                         /* SIGHUP handler */
