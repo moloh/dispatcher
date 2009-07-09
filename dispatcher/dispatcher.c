@@ -70,11 +70,13 @@ int main(int argc, char *argv[])
             dp_logger(LOG_WARNING, "Reloading configuration...");
             fprintf(stderr, "Reloading configuration...\n");
 
-            /* reload configuration
+            /* reload configuration and log files (possible changes)
              * NOTE: this function automatically merges configuration and
              *       handles errors
+             * NOTE: openlog does not allocate identifier!
              */
-            dp_config_init();
+            if (dp_config_init())
+                dp_logger_init(cfg.log.dispatcher);
 
             reload_flag = FALSE;
         }
