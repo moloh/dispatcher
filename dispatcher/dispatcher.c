@@ -16,16 +16,20 @@ int main(int argc, char *argv[])
     const char *usage =
         "Usage: "PACKAGE_NAME" [OPTIONS...]\n"
         " -h\t\tPrint this help information\n"
+        " -v\t\tShow version information\n"
         " -f <file>\tOverride configuration file location\n";
 
     /* process command line parameters */
-    while ((option = getopt(argc, argv, "f:h")) != -1)
+    while ((option = getopt(argc, argv, "f:hv")) != -1)
         switch (option) {
             case 'f':
                 cfg_location = optarg;
                 break;
             case 'h':
                 printf(usage);
+                return EXIT_SUCCESS;
+            case 'v':
+                printf(PACKAGE_NAME", version "PACKAGE_VERSION"\n");
                 return EXIT_SUCCESS;
             case '?':
                 printf(usage);

@@ -3,6 +3,7 @@
 * reopen logs on reload, this prevents using freed identifier by syslog
 * clean sense logging, use timestamps to specify delays in log printing
 * count number of dispatched jobs and log that
+* add version information command line option
 
 2009-07-09 dispatcher 0.9.95
 
