@@ -5,9 +5,10 @@
 int main(int argc, char *argv[])
 {
     int32_t queue_counter = child_counter; /* number of jobs in queue */
-    int32_t sense_counter = 0;             /* number of empty iterations (queue not full) */
-    int32_t terminate_counter = -1;        /* number of terminate iterations */
-    int32_t pause_counter = 0;             /* number of pause iterations */
+    uint32_t dispatched_counter = 0;       /* number of dispatched tasks */
+    time_t sense_timestamp = 0;            /* timestamp for sense display */
+    time_t terminate_timestamp = 0;        /* timestamp for termination sense display */
+    time_t pause_timestamp = 0;            /* timestamp for pause sense display */
     char query[QUERY_LIMIT];               /* query buffer */
     MYSQL *db = NULL;
     int option;
@@ -65,6 +66,9 @@ int main(int argc, char *argv[])
         dp_task task;
         pid_t pid;
 
+        /* get timestamp for current iteration */
+        timestamp = time(NULL);
+
         /* Check if we should reload configuration */
         if (reload_flag == TRUE) {
             dp_logger(LOG_WARNING, "Reloading configuration...");
@@ -81,68 +85,58 @@ int main(int argc, char *argv[])
             reload_flag = FALSE;
         }
 
-        /* get timestamp for current iteration */
-        timestamp = time(NULL);
-
-        /* If we are already at maximum fork capacity, we shouldn't
-         * grab another task, we should just sleep for a bit.  Or,
-         * maybe we were told to stop dispatching or terminate.
-         *
-         * NOTE: this prevents automatic update of task in database, even
-         * when there is no space in queue
-         *
-         * NOTE: pause sense counters are reset when flag is disabled
-         */
-        if ((terminate_flag == TRUE) ||
-            (pause_flag == TRUE) ||
-            (queue_counter >= QUEUE_LIMIT)) {
-
-            /* Check if we should terminate */
-            if (terminate_flag == TRUE) {
-                /* if we start countdown then we should print some information
-                 * to syslog and terminal
-                 */
-                if (terminate_counter < 0) {
-                    dp_logger(LOG_WARNING, "Terminating... Waiting for children");
-                    fprintf(stderr, "Terminating... Waiting for children\n");
-                    terminate_counter = 0;
-                }
-
-                /* Check if we should print sense information during terminate */
-                if (cfg.sense.terminated &&
-                    terminate_counter++ >= cfg.sense.terminated) {
-
-                    dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, QUEUE_LIMIT);
-                    fprintf(stderr, "(%d/%d) Terminating...\n", queue_counter, QUEUE_LIMIT);
-                    terminate_counter = 0;
-                }
-
-                /* Check if all children are done
-                 * NOTE: we break main loop here
-                 */
-                if (queue_counter <= 0) {
-                    dp_logger(LOG_WARNING, "Terminated");
-                    fprintf(stderr, "Terminated\n");
-                    break;
-                }
+        /* check if we should terminate */
+        if (terminate_flag == TRUE) {
+            /* if we start countdown then we should print some information
+             * to syslog and terminal
+             */
+            if (terminate_timestamp == 0) {
+                dp_logger(LOG_WARNING, "Terminating... Waiting for children");
+                fprintf(stderr, "Terminating... Waiting for children\n");
+                terminate_timestamp = timestamp + cfg.sense.terminated;
             }
 
-            /* Check if we are paused */
-            if (pause_flag == TRUE) {
-                /* Check if we should print sense information during pause */
-                if (cfg.sense.paused &&
-                    ++pause_counter >= cfg.sense.paused) {
+            /* Check if we should print sense information during terminate */
+            if (cfg.sense.terminated &&
+                terminate_timestamp < timestamp) {
 
-                    dp_logger(LOG_NOTICE, "(%d/%d) Sleeping...", queue_counter, QUEUE_LIMIT);
-                    pause_counter = 0;
-                }
-            } else
-                pause_counter = 0;
+                dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, QUEUE_LIMIT);
+                fprintf(stderr, "(%d/%d) Terminating...\n", queue_counter, QUEUE_LIMIT);
+                terminate_timestamp = timestamp + cfg.sense.terminated;
+            }
 
-            /* This sleep call may be interrupted by a signal, but the
-             * only signals we care about are when a child is finished,
-             * at which point, we want to try another task anyway.
+            /* Check if all children are done
+             * NOTE: we break main loop here
              */
+            if (queue_counter <= 0) {
+                dp_logger(LOG_WARNING, "Terminated");
+                fprintf(stderr, "Terminated\n");
+                break;
+            }
+
+            sleep(cfg.sleep_loop);
+
+            /* update status of workers and get number of workers */
+            dp_status_timeout(timestamp - cfg.delay.task_timeout, &queue_counter);
+            dp_status_update(&queue_counter);
+
+            continue;
+        }
+
+        /* check if we are paused */
+        if (pause_flag == TRUE) {
+            /* update sense timestamp when paused */
+            sense_timestamp = timestamp + cfg.sense.loop;
+
+            /* Check if we should print sense information during pause */
+            if (cfg.sense.paused &&
+                pause_timestamp < timestamp) {
+
+                dp_logger(LOG_NOTICE, "Sleeping (%"SCNi32"/%"SCNi32")",
+                          queue_counter, QUEUE_LIMIT);
+                pause_timestamp = timestamp + cfg.sense.paused;
+            }
+
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
@@ -151,7 +145,34 @@ int main(int argc, char *argv[])
 
             continue;
         } else
-            pause_counter = 0;
+            pause_timestamp = timestamp + cfg.sense.paused;
+
+        /* log sense */
+        if (cfg.sense.loop &&
+            sense_timestamp < timestamp) {
+
+            dp_logger(LOG_NOTICE, "Dispatching (%"SCNu32") (%"SCNi32"/%"SCNi32")",
+                      dispatched_counter,
+                      queue_counter, QUEUE_LIMIT);
+
+            sense_timestamp = timestamp + cfg.sense.loop;
+            dispatched_counter = 0;
+        }
+
+        /* If we are already at maximum fork capacity, we shouldn't
+         * grab another task, we should just sleep for a bit.
+         * NOTE: this prevents automatic update of task in database, even
+         * when there is no space in queue
+         */
+        if (queue_counter >= QUEUE_LIMIT) {
+            sleep(cfg.sleep_loop);
+
+            /* update status of workers and get number of workers */
+            dp_status_timeout(timestamp - cfg.delay.task_timeout, &queue_counter);
+            dp_status_update(&queue_counter);
+
+            continue;
+        }
 
         /* START fake loop for query "exceptions" */
         do {
@@ -214,19 +235,6 @@ int main(int argc, char *argv[])
         /* END fake loop for query "exceptions" */
         } while (FALSE);
 
-        /* update basic counters */
-        if (!is_job)
-            sense_counter += 1;
-        else
-            sense_counter = 0;
-
-        if (cfg.sense.loop &&
-            sense_counter >= cfg.sense.loop) {
-
-            dp_logger(LOG_NOTICE, "(%d/%d) ...", queue_counter, QUEUE_LIMIT);
-            sense_counter = 0;
-        }
-
         /* START fake loop for dispatching "exceptions" */
         do {
             dp_child *worker;
@@ -249,6 +257,9 @@ int main(int argc, char *argv[])
             worker->task = task;
             worker->stamp = timestamp;
             worker->null = FALSE;
+
+            /* update dispatched marker for sense */
+            dispatched_counter += 1;
 
             /* fork worker */
             if ((pid = fork()) == 0) { /* child */
