@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
 
     /* specify that we are initialized */
-    initialized = TRUE;
+    initialized = true;
 
     /* initialize logger */
     dp_logger_init(cfg.log.dispatcher);
@@ -71,9 +71,9 @@ int main(int argc, char *argv[])
     printf("Dispatcher started, check syslog for details\n");
 
     /* main loop */
-    while (TRUE) {
+    while (true) {
         time_t timestamp;
-        bool is_job = FALSE;
+        bool is_job = false;
         dp_task task;
         pid_t pid;
 
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
         timestamp = time(NULL);
 
         /* Check if we should reload configuration */
-        if (reload_flag == TRUE) {
+        if (reload_flag == true) {
             dp_logger(LOG_WARNING, "Reloading configuration...");
             fprintf(stderr, "Reloading configuration...\n");
 
@@ -93,11 +93,11 @@ int main(int argc, char *argv[])
             if (dp_config_init())
                 dp_logger_init(cfg.log.dispatcher);
 
-            reload_flag = FALSE;
+            reload_flag = false;
         }
 
         /* check if we should terminate */
-        if (terminate_flag == TRUE) {
+        if (terminate_flag == true) {
             /* if we start countdown then we should print some information
              * to syslog and terminal
              */
@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
         }
 
         /* check if we are paused */
-        if (pause_flag == TRUE) {
+        if (pause_flag == true) {
             /* update sense timestamp when paused */
             sense_timestamp = timestamp + cfg.sense.loop;
 
@@ -240,11 +240,11 @@ int main(int argc, char *argv[])
             if (!dp_mysql_get_task(&task, result))
                 dp_logger(LOG_ERR, "Failed to get job (%d) details!", id);
             else
-                is_job = TRUE;
+                is_job = true;
             mysql_free_result(result);
 
         /* END fake loop for query "exceptions" */
-        } while (FALSE);
+        } while (false);
 
         /* START fake loop for dispatching "exceptions" */
         do {
@@ -267,7 +267,7 @@ int main(int argc, char *argv[])
             /* initialize worker data */
             worker->task = task;
             worker->stamp = timestamp;
-            worker->null = FALSE;
+            worker->null = false;
 
             /* update dispatched marker for sense */
             dispatched_counter += 1;
@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
                 gearman_return_t error;
                 void *worker_result = NULL;
                 size_t worker_result_size;
-                bool status = FALSE;
+                bool status = false;
                 char *value, *abuffer = NULL;
 
                 /* initialize logger */
@@ -428,7 +428,7 @@ int main(int argc, char *argv[])
                 queue_counter += 1;
             }
         /* END fake loop for dispatching "exceptions" */
-        } while (FALSE);
+        } while (false);
 
         /* wait for next iteration
          * NOTE: sleep terminates when we receive signal
@@ -453,7 +453,7 @@ int main(int argc, char *argv[])
 }
 
 /* Load dispatcher configuration file, can be called multiple times.
- * When configuration file is invalid then function return FALSE;
+ * When configuration file is invalid then function return false;
  * NOTE: we log in syslog configuration related issues only after
  *       initialization is complete, i.e. on reload
  */
@@ -465,7 +465,7 @@ bool dp_config_init()
     char name[BUFFER_LIMIT];
     dp_config_val field;
     uint32_t line;
-    bool is_eof = FALSE, is_error = FALSE;
+    bool is_eof = false, is_error = false;
     dp_config config;
 
     /* initialize new config */
@@ -482,7 +482,7 @@ bool dp_config_init()
         if (initialized)
             dp_logger(LOG_ERR, "Unable to find configuration file: '%s'", config_location);
         fprintf(stderr, "Unable to find configuration file: '%s'\n", config_location);
-        return FALSE;
+        return false;
     }
 
     /* read each line separately */
@@ -502,8 +502,8 @@ bool dp_config_init()
         field = dp_config_field(name);
 
         /* try to set configuration variable */
-        if (!dp_config_set(&config, field, value, TRUE)) {
-            is_error = TRUE;
+        if (!dp_config_set(&config, field, value, true)) {
+            is_error = true;
             break;
         }
     }
@@ -522,10 +522,10 @@ bool dp_config_init()
         if (initialized)
             dp_logger(LOG_ERR, "Invalid configuration file at line (%"SCNu32")", line);
         fprintf(stderr, "Invalid configuration file at line (%"SCNu32")\n", line);
-        return FALSE;
+        return false;
     }
 
-    return TRUE;
+    return true;
 }
 
 bool dp_signal_init()
@@ -573,7 +573,7 @@ bool dp_signal_init()
     sigaction(SIGUSR1, &action, NULL);
     sigaction(SIGUSR2, &action, NULL);
 
-    return TRUE;
+    return true;
 }
 
 bool dp_signal_block(sigset_t *old)
@@ -588,7 +588,7 @@ bool dp_signal_block(sigset_t *old)
     /* apply block */
     sigprocmask(SIG_BLOCK, &mask, old);
 
-    return TRUE;
+    return true;
 }
 
 bool dp_signal_restore(sigset_t *restore)
@@ -596,7 +596,7 @@ bool dp_signal_restore(sigset_t *restore)
     /* restore mask */
     sigprocmask(SIG_SETMASK, restore, NULL);
 
-    return TRUE;
+    return true;
 }
 
 dp_config_val dp_config_field(const char *name)
@@ -650,7 +650,7 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
 
     switch (field) {
     case DP_CONFIG_UNKNOWN:
-        return FALSE;
+        return false;
     case DP_CONFIG_MYSQL_HOST:
         if (config->mysql.host) free(config->mysql.host);
         if (!if_dup) config->mysql.host = value;
@@ -678,7 +678,7 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         break;
     case DP_CONFIG_MYSQL_PORT:
         if (sscanf(value, "%d", &config->mysql.port) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_GEARMAN_HOST:
         if (config->gearman.host) free(config->gearman.host);
@@ -687,15 +687,15 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         break;
     case DP_CONFIG_GEARMAN_PORT:
         if (sscanf(value, "%d", &config->gearman.port) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_DELAY_TASK_FAILED:
         if (sscanf(value, "%" SCNu16, &config->delay.task_failed) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_DELAY_TASK_TIMEOUT:
         if (sscanf(value, "%" SCNu16, &config->delay.task_timeout) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_LOG_DISPATCHER:
         if (config->log.dispatcher) free(config->log.dispatcher);
@@ -709,33 +709,33 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         break;
     case DP_CONFIG_LOG_LEVEL:
         if ((enumeration = dp_enum_name(dp_log_level, value)) == NULL)
-            return FALSE;
+            return false;
         config->log.level = enumeration->value;
         break;
     case DP_CONFIG_LOG_FACILITY:
         if ((enumeration = dp_enum_name(dp_log_facility, value)) == NULL)
-            return FALSE;
+            return false;
         config->log.facility = enumeration->value;
         break;
     case DP_CONFIG_SENSE_LOOP:
         if (sscanf(value, "%" SCNu16, &config->sense.loop) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_SENSE_TERMINATED:
         if (sscanf(value, "%" SCNu16, &config->sense.terminated) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_SENSE_PAUSED:
         if (sscanf(value, "%" SCNu16, &config->sense.paused) != 1)
-            return FALSE;
+            return false;
         break;
     case DP_CONFIG_SLEEP_LOOP:
         if (sscanf(value, "%" SCNu16, &config->sleep_loop) != 1)
-            return FALSE;
+            return false;
         break;
     }
 
-    return TRUE;
+    return true;
 }
 
 void dp_config_free(dp_config *config)
@@ -757,7 +757,7 @@ bool dp_gearman_init(gearman_client_st **client)
 {
     if ((*client = gearman_client_create(NULL)) == NULL) {
         dp_logger(LOG_ERR, "Gearman initialization failed");
-        return FALSE;
+        return false;
     }
 
     if (gearman_client_add_server(*client, cfg.gearman.host,
@@ -766,11 +766,11 @@ bool dp_gearman_init(gearman_client_st **client)
                   "Gearman connection error (%d): %s",
                   gearman_client_errno(*client),
                   gearman_client_error(*client));
-        return FALSE;
+        return false;
     }
 
     dp_logger(LOG_INFO, "Gearman connection established");
-    return TRUE;
+    return true;
 }
 
 /* TODO: maybe extend it (handle first word (hash, list) correctly, discard end lines and white spaces */
@@ -814,7 +814,7 @@ bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
             /* find terminating ': ' */
             if ((end = dp_strustr(++end, last - end, ": ")) == NULL) {
                 dp_logger(LOG_ERR, "Invalid Gearman reply string");
-                return FALSE;
+                return false;
             }
 
             /* copy name part ":[^:]*:" */
@@ -838,7 +838,7 @@ bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
         free(name);
     }
 
-    return FALSE;
+    return false;
 }
 
 bool dp_gearman_get_status(const char *result, size_t size)
@@ -846,14 +846,14 @@ bool dp_gearman_get_status(const char *result, size_t size)
     /* find status string */
     const char *pos = dp_strustr(result, size, ":status: ");
     if (pos == NULL)
-        return FALSE;
+        return false;
 
     /* check if we have enough remaining space */
     const size_t length = pos + 9 + 3 - result;
     if (length > size || memcmp(pos + 9, ":ok", 3))
-        return FALSE;
+        return false;
 
-    return TRUE;
+    return true;
 }
 
 
@@ -862,7 +862,7 @@ bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 {
     switch (field) {
     case DP_REPLY_UNKNOWN:
-        return FALSE;
+        return false;
     case DP_REPLY_BACKTRACE:
         if (reply->backtrace) free(reply->backtrace);
         reply->backtrace = value;
@@ -885,7 +885,7 @@ bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
         break;
     }
 
-    return TRUE;
+    return true;
 }
 
 bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
@@ -894,7 +894,7 @@ bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
 
     switch (field) {
     case DP_REPLY_UNKNOWN:
-        return FALSE;
+        return false;
     case DP_REPLY_BACKTRACE:
         value = &reply->backtrace;
         break;
@@ -914,18 +914,18 @@ bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
 
     /* check if there is data to escape */
     if (*value == NULL)
-        return TRUE;
+        return true;
 
     /* escape string */
     escape = dp_strescape(*value);
     if (escape == NULL)
-        return FALSE;
+        return false;
 
     /* set new escaped version of string */
     free(*value);
     *value = escape;
 
-    return TRUE;
+    return true;
 }
 
 dp_reply_val dp_gearman_reply_field(const char *name)
@@ -980,17 +980,17 @@ bool dp_mysql_init(MYSQL **db)
 {
     if ((*db = mysql_init(*db)) == NULL) {
         dp_logger(LOG_ERR, "MySQL initialization error");
-        return FALSE;
+        return false;
     }
 
-    return TRUE;
+    return true;
 }
 
 /* reusable logged MySQL connect function */
 bool dp_mysql_connect(MYSQL *db)
 {
     /* check for valid MySQL structure */
-    if (!db) return FALSE;
+    if (!db) return false;
 
     /* try open connection */
     if (!mysql_real_connect(db, cfg.mysql.host,
@@ -1000,11 +1000,11 @@ bool dp_mysql_connect(MYSQL *db)
                                 cfg.mysql.port, NULL, /* port, socket */
                                 0)) {                 /* client flags */
         dp_logger(LOG_ERR, "MySQL connection error: %s", mysql_error(db));
-        return FALSE;
+        return false;
     }
 
     dp_logger(LOG_INFO, "MySQL connection established");
-    return TRUE;
+    return true;
 }
 
 /* logged MySQL query wrapper with basic recovering */
@@ -1015,7 +1015,7 @@ bool dp_mysql_query(MYSQL *db, const char *query)
     /* check if we have query at all */
     if (query == NULL) {
         dp_logger(LOG_ERR, "MySQL query is missing!");
-        return FALSE;
+        return false;
     }
 
     /* execute query */
@@ -1028,7 +1028,7 @@ bool dp_mysql_query(MYSQL *db, const char *query)
 
                 result = mysql_store_result(db);
                 mysql_free_result(result);
-                return FALSE;
+                return false;
             case CR_SERVER_GONE_ERROR:     /* try to reconnect and rerun query */
             case CR_SERVER_LOST:
                 dp_logger(LOG_ERR, "MySQL query error (%d), recovering: %s",
@@ -1037,7 +1037,7 @@ bool dp_mysql_query(MYSQL *db, const char *query)
 
                 /* reconnect to server */
                 if (!dp_mysql_connect(db))
-                    return FALSE;
+                    return false;
 
                 /* execute query, recover */
                 if (mysql_query(db, query)) {
@@ -1048,16 +1048,16 @@ bool dp_mysql_query(MYSQL *db, const char *query)
                     /* clear state anyway */
                     result = mysql_store_result(db);
                     mysql_free_result(result);
-                    return FALSE;
+                    return false;
                 }
 
-                return TRUE;
+                return true;
             default:
-                return FALSE;
+                return false;
         }
     }
 
-    return TRUE;
+    return true;
 }
 
 /* TODO: error checking for mysql_fetch_row */
@@ -1073,7 +1073,7 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     memset(task, 0, sizeof(dp_task));
 
     if (result == NULL)
-        return FALSE;
+        return false;
 
     /* fetch single result */
     row = mysql_fetch_row(result);
@@ -1116,7 +1116,7 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     if (task->status)
         task->status = dp_strdup(task->status);
 
-    return TRUE;
+    return true;
 }
 
 bool dp_mysql_get_int(int *value, MYSQL_RES *result)
@@ -1124,7 +1124,7 @@ bool dp_mysql_get_int(int *value, MYSQL_RES *result)
     MYSQL_ROW row;
 
     if (result == NULL)
-        return FALSE;
+        return false;
 
     /* fetch single result */
     row = mysql_fetch_row(result);
@@ -1134,7 +1134,7 @@ bool dp_mysql_get_int(int *value, MYSQL_RES *result)
         if (row[0] != NULL)
             sscanf(row[0], "%d", value);
 
-    return TRUE;
+    return true;
 }
 
 void dp_mysql_task_free(dp_task *task)
@@ -1422,7 +1422,7 @@ void dp_sigchld(int signal)
     (void)signal;
 
     /* update flag to note pending processing */
-    child_flag = TRUE;
+    child_flag = true;
 }
 
 void dp_sighup(int signal)
@@ -1431,7 +1431,7 @@ void dp_sighup(int signal)
     (void)signal;
 
     /* dispatcher should reload configuration */
-    reload_flag = TRUE;
+    reload_flag = true;
 }
 
 void dp_sigtermint(int signal)
@@ -1440,7 +1440,7 @@ void dp_sigtermint(int signal)
     (void)signal;
 
     /* dispatcher should terminate */
-    terminate_flag = TRUE;
+    terminate_flag = true;
 }
 
 void dp_sigusr12(int signal)
@@ -1449,10 +1449,10 @@ void dp_sigusr12(int signal)
     (void)signal;
 
     /* Toggle flag to pause or resume dispatching */
-    if (pause_flag == TRUE)
-        pause_flag = FALSE;
+    if (pause_flag == true)
+        pause_flag = false;
     else
-        pause_flag = TRUE;
+        pause_flag = true;
 }
 
 bool dp_status_init()
@@ -1460,7 +1460,7 @@ bool dp_status_init()
     /* initialize status array */
     child_status = malloc(child_limit * sizeof(dp_child));
     if (child_status == NULL)
-        return FALSE;
+        return false;
 
     for (size_t i = 0; i < child_limit; ++i) {
         /* clear task */
@@ -1469,10 +1469,10 @@ bool dp_status_init()
         /* clear other info */
         child_status[i].pid = 0;
         child_status[i].stamp = 0;
-        child_status[i].null = TRUE;
+        child_status[i].null = true;
     }
 
-    return TRUE;
+    return true;
 }
 
 void dp_status_free()
@@ -1502,14 +1502,14 @@ void dp_status_update(int32_t *queue_counter)
 
     while ((pid = waitpid(0, &status, WNOHANG)) > 0) {
         dp_child *worker = NULL;
-        bool is_end = FALSE;
+        bool is_end = false;
 
         /* NOTE: we update flag only after successful retrieval of reaped
          * process
          */
 
         /* update flag */
-        child_flag = FALSE;
+        child_flag = false;
 
         /* extract information about specific child */
         if ((worker = dp_child_pid(pid)) == NULL) {
@@ -1521,7 +1521,7 @@ void dp_status_update(int32_t *queue_counter)
         /* check if normal exit */
         if (WIFEXITED(status)) {
             child_counter -= 1;
-            is_end = TRUE;
+            is_end = true;
 
             if (WEXITSTATUS(status) != EXIT_SUCCESS)
                 dp_logger(LOG_ERR,
@@ -1551,7 +1551,7 @@ void dp_status_update(int32_t *queue_counter)
                               worker->pid, worker->task.id);
 
                 child_counter -= 1;
-                is_end = TRUE;
+                is_end = true;
             } else
                 dp_logger(LOG_ERR,
                           "Child worker (%d) signalled",
@@ -1569,7 +1569,7 @@ void dp_status_update(int32_t *queue_counter)
             /* clear worker data */
             worker->pid = 0;
             worker->stamp = 0;
-            worker->null = TRUE;
+            worker->null = true;
         }
     }
 

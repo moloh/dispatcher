@@ -39,10 +39,6 @@
 #define ERROR_ASPRINTF "---\\n:status: :asprintf\\n"
 #define ERROR_FORK     "---\\n:status: :fork\\n"
 
-/* internal bool */
-#define TRUE  true
-#define FALSE false
-
 #if 0
 #undef LOG_WARNING
 #undef LOG_DEBUG
@@ -183,16 +179,16 @@ dp_enum dp_log_level[] = {
 };
 
 /* global flag to indicate child state change */
-volatile sig_atomic_t child_flag = FALSE;
+volatile sig_atomic_t child_flag = false;
 
 /* global flag to pause dispatching */
-volatile sig_atomic_t pause_flag = FALSE;
+volatile sig_atomic_t pause_flag = false;
 
 /* global flag to terminate dispatcher */
-volatile sig_atomic_t terminate_flag = FALSE;
+volatile sig_atomic_t terminate_flag = false;
 
 /* global flag to reload configuration */
-volatile sig_atomic_t reload_flag = FALSE;
+volatile sig_atomic_t reload_flag = false;
 
 /* global status variables */
 int       child_counter = 0;        /* current number of running children */
@@ -204,7 +200,7 @@ const char *cfg_location = NULL;    /* configuration file location override */
 dp_config cfg;                      /* global configuration object */
 
 /* global state flags */
-bool initialized = FALSE;           /* flag to indicate basic initialization */
+bool initialized = false;           /* flag to indicate basic initialization */
 
 /* internal functions */
 bool dp_config_init    ();                  /* initialize configuration */
