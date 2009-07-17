@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
         timestamp = time(NULL);
 
         /* Check if we should reload configuration */
-        if (reload_flag == true) {
+        if (reload_flag) {
             dp_logger(LOG_WARNING, "Reloading configuration...");
             fprintf(stderr, "Reloading configuration...\n");
 
@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
         }
 
         /* check if we should terminate */
-        if (terminate_flag == true) {
+        if (terminate_flag) {
             /* if we start countdown then we should print some information
              * to syslog and terminal
              */
@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
         }
 
         /* check if we are paused */
-        if (pause_flag == true) {
+        if (pause_flag) {
             /* update sense timestamp when paused */
             sense_timestamp = timestamp + cfg.sense.loop;
 
@@ -1449,7 +1449,7 @@ void dp_sigusr12(int signal)
     (void)signal;
 
     /* Toggle flag to pause or resume dispatching */
-    if (pause_flag == true)
+    if (pause_flag)
         pause_flag = false;
     else
         pause_flag = true;

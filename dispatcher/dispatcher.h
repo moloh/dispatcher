@@ -192,7 +192,7 @@ volatile sig_atomic_t reload_flag = false;
 
 /* global status variables */
 int       child_counter = 0;        /* current number of running children */
-dp_child *child_status;             /* array of child status */
+dp_child *child_status = NULL;      /* array of child status */
 uint8_t   child_limit = 50;         /* maximum number of children */
 
 /* global configuration */
