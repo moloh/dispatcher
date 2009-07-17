@@ -17,11 +17,18 @@ int main(int argc, char *argv[])
         "Usage: "PACKAGE_NAME" [OPTIONS...]\n"
         " -h\t\tPrint this help information\n"
         " -v\t\tShow version information\n"
-        " -f <file>\tOverride configuration file location\n";
+        " -f <file>\tOverride configuration file location\n"
+        " -n <size>\tMaximum number of children\n";
 
     /* process command line parameters */
-    while ((option = getopt(argc, argv, "f:hv")) != -1)
+    while ((option = getopt(argc, argv, "n:f:hv")) != -1)
         switch (option) {
+            case 'n':
+                if (sscanf(optarg, "%"SCNu8, &child_limit) < 1) {
+                    fprintf(stderr, "Invalid parameter value\n");
+                    return EXIT_FAILURE;
+                }
+                break;
             case 'f':
                 cfg_location = optarg;
                 break;
@@ -104,8 +111,8 @@ int main(int argc, char *argv[])
             if (cfg.sense.terminated &&
                 terminate_timestamp < timestamp) {
 
-                dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, QUEUE_LIMIT);
-                fprintf(stderr, "(%d/%d) Terminating...\n", queue_counter, QUEUE_LIMIT);
+                dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, child_limit);
+                fprintf(stderr, "(%d/%d) Terminating...\n", queue_counter, child_limit);
                 terminate_timestamp = timestamp + cfg.sense.terminated;
             }
 
@@ -137,7 +144,7 @@ int main(int argc, char *argv[])
                 pause_timestamp < timestamp) {
 
                 dp_logger(LOG_NOTICE, "Sleeping (%"SCNi32"/%"SCNi32")",
-                          queue_counter, QUEUE_LIMIT);
+                          queue_counter, child_limit);
                 pause_timestamp = timestamp + cfg.sense.paused;
             }
 
@@ -157,7 +164,7 @@ int main(int argc, char *argv[])
 
             dp_logger(LOG_NOTICE, "Dispatching (%"SCNu32") (%"SCNi32"/%"SCNi32")",
                       dispatched_counter,
-                      queue_counter, QUEUE_LIMIT);
+                      queue_counter, child_limit);
 
             sense_timestamp = timestamp + cfg.sense.loop;
             dispatched_counter = 0;
@@ -168,7 +175,7 @@ int main(int argc, char *argv[])
          * NOTE: this prevents automatic update of task in database, even
          * when there is no space in queue
          */
-        if (queue_counter >= QUEUE_LIMIT) {
+        if (queue_counter >= child_limit) {
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
@@ -247,7 +254,7 @@ int main(int argc, char *argv[])
              * NOTE: currently is there is job we get here only if there is
              * free spot in queue, but check of queue size anyway
              */
-            if (!is_job || queue_counter >= QUEUE_LIMIT)
+            if (!is_job || queue_counter >= child_limit)
                 break;
 
             /* find first empty entry */
@@ -280,7 +287,7 @@ int main(int argc, char *argv[])
                 dp_logger_init(cfg.log.worker);
 
                 dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
-                          queue_counter + 1, QUEUE_LIMIT, worker->task.id);
+                          queue_counter + 1, child_limit, worker->task.id);
 
                 /* gearman initialize */
                 if (!dp_gearman_init(&client))
@@ -427,7 +434,7 @@ int main(int argc, char *argv[])
          * NOTE: sleep terminates when we receive signal
          * NOTE: sleep only when no task are waiting or we have full queue
          */
-        if (!is_job || (is_job && queue_counter >= QUEUE_LIMIT))
+        if (!is_job || (is_job && queue_counter >= child_limit))
             sleep(cfg.sleep_loop);
 
         /* update status of workers and get number of running workers */
@@ -440,6 +447,7 @@ int main(int argc, char *argv[])
 
     /* free configuration resources */
     dp_config_free(&cfg);
+    dp_status_free();
 
     return EXIT_SUCCESS;
 }
@@ -1450,16 +1458,33 @@ void dp_sigusr12(int signal)
 bool dp_status_init()
 {
     /* initialize status array */
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i) {
+    child_status = malloc(child_limit * sizeof(dp_child));
+    if (child_status == NULL)
+        return FALSE;
+
+    for (size_t i = 0; i < child_limit; ++i) {
         /* clear task */
         dp_mysql_task_clear(&child_status[i].task);
 
         /* clear other info */
         child_status[i].pid = 0;
+        child_status[i].stamp = 0;
         child_status[i].null = TRUE;
     }
 
     return TRUE;
+}
+
+void dp_status_free()
+{
+    if (child_status != NULL) {
+        /* free all data of non null children */
+        for (size_t i = 0; i < child_limit; ++i)
+            if (!child_status[i].null)
+                dp_mysql_task_free(&child_status[i].task);
+        /* free status table array */
+        free(child_status);
+    }
 }
 
 void dp_status_update(int32_t *queue_counter)
@@ -1543,6 +1568,7 @@ void dp_status_update(int32_t *queue_counter)
 
             /* clear worker data */
             worker->pid = 0;
+            worker->stamp = 0;
             worker->null = TRUE;
         }
     }
@@ -1562,7 +1588,7 @@ void dp_status_update(int32_t *queue_counter)
 void dp_status_timeout(time_t timestamp, int32_t *queue_counter)
 {
     /* process possible timeouts */
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i)
+    for (size_t i = 0; i < child_limit; ++i)
         if (!child_status[i].null &&
             child_status[i].stamp < timestamp) {
 
@@ -1585,7 +1611,7 @@ void dp_status_timeout(time_t timestamp, int32_t *queue_counter)
 
 dp_child *dp_child_null()
 {
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i)
+    for (size_t i = 0; i < child_limit; ++i)
         if (child_status[i].null)
             return &child_status[i];
     return NULL;
@@ -1593,7 +1619,7 @@ dp_child *dp_child_null()
 
 dp_child *dp_child_pid(pid_t pid)
 {
-    for (size_t i = 0; i < QUEUE_LIMIT; ++i)
+    for (size_t i = 0; i < child_limit; ++i)
         if (!child_status[i].null)
             if (child_status[i].pid == pid)
                 return &child_status[i];

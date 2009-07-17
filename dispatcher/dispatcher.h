@@ -31,7 +31,6 @@
 #endif /* __GNUC__ */
 
 /* global defines */
-#define QUEUE_LIMIT        50    /* maximum number of concurrent workers */
 #define QUERY_LIMIT        8192  /* maximum MySQL query length */
 #define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
 
@@ -196,8 +195,9 @@ volatile sig_atomic_t terminate_flag = FALSE;
 volatile sig_atomic_t reload_flag = FALSE;
 
 /* global status variables */
-int      child_counter = 0;         /* current number of running children */
-dp_child child_status[QUEUE_LIMIT]; /* array of child status */
+int       child_counter = 0;        /* current number of running children */
+dp_child *child_status;             /* array of child status */
+uint8_t   child_limit = 50;         /* maximum number of children */
 
 /* global configuration */
 const char *cfg_location = NULL;    /* configuration file location override */
@@ -259,6 +259,7 @@ void  dp_sigtermint    (int signal);                                         /* 
 void  dp_sigusr12      (int signal);                                         /* SIGUSR12 handler */
 
 bool  dp_status_init   ();                                                   /* initialize child_status table */
+void  dp_status_free   ();                                                   /* free data associated with child_status table */
 void  dp_status_update (int32_t *queue_counter);                             /* process child_status table */
 void  dp_status_timeout(time_t timestamp, int32_t *queue_counter);           /* process child_status table timeouts */
 
