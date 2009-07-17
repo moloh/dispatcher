@@ -143,7 +143,7 @@ int main(int argc, char *argv[])
             if (cfg.sense.paused &&
                 pause_timestamp < timestamp) {
 
-                dp_logger(LOG_NOTICE, "Sleeping (%"SCNi32"/%"SCNi32")",
+                dp_logger(LOG_NOTICE, "Sleeping (%"PRIi32"/%"PRIi32")",
                           queue_counter, child_limit);
                 pause_timestamp = timestamp + cfg.sense.paused;
             }
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
         if (cfg.sense.loop &&
             sense_timestamp < timestamp) {
 
-            dp_logger(LOG_NOTICE, "Dispatching (%"SCNu32") (%"SCNi32"/%"SCNi32")",
+            dp_logger(LOG_NOTICE, "Dispatching (%"PRIu32") (%"PRIi32"/%"PRIi32")",
                       dispatched_counter,
                       queue_counter, child_limit);
 
@@ -520,8 +520,8 @@ bool dp_config_init()
     } else {
         dp_config_free(&config);
         if (initialized)
-            dp_logger(LOG_ERR, "Invalid configuration file at line (%"SCNu32")", line);
-        fprintf(stderr, "Invalid configuration file at line (%"SCNu32")\n", line);
+            dp_logger(LOG_ERR, "Invalid configuration file at line (%"PRIu32")", line);
+        fprintf(stderr, "Invalid configuration file at line (%"PRIu32")\n", line);
         return false;
     }
 
