@@ -98,8 +98,8 @@ typedef struct dp_enum {
 typedef struct dp_task {
     int id;            /* id number of the task */
     int priority;      /* priority of the task */
-    char *type;        /* function name for gearman */
-    char *description; /* function parameters for gearman */
+    char *type;        /* call destination for gearman */
+    char *description; /* call parameters for gearman */
     char *status;      /* task status, i.e. new, working, done */
     time_t run_after;  /* timestamp for delayed execution, timeouts handling */
 } dp_task;
