@@ -1,4 +1,4 @@
-2009-07-?? dispatcher 0.9.96
+2009-07-20 dispatcher 0.9.96
 
 * reopen logs on reload, this prevents using freed identifier by syslog
 * clean sense logging, use timestamps to specify delays in log printing
