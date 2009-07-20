@@ -4,7 +4,7 @@
 autoheader
 autoconf
 
-RELEASE="$(grep PACKAGE_VERSION= ./configure | sed -e 's/[^0-9.]//g')"
+RELEASE="$(sed -n "s/^PACKAGE_VERSION='\(.*\)'$/\1/p" configure)"
 REVISION="$(svn info . | grep '^Revision: ' | sed -e 's/[^0-9]//g')"
 PACKAGE="nexopia-dispatcher-${RELEASE}-r${REVISION}"
 
