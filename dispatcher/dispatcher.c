@@ -772,6 +772,7 @@ void dp_config_free(dp_config *config)
         free(config->mysql.passwd);
         free(config->mysql.table);
         free(config->gearman.host);
+        free(config->task.environment);
         free(config->log.dispatcher);
         free(config->log.worker);
     }
