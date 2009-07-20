@@ -9,6 +9,7 @@ int main(int argc, char *argv[])
     time_t sense_timestamp = 0;            /* timestamp for sense display */
     time_t terminate_timestamp = 0;        /* timestamp for termination sense display */
     time_t pause_timestamp = 0;            /* timestamp for pause sense display */
+    char buffer[BUFFER_LIMIT];             /* buffer for various tasks */
     char query[QUERY_LIMIT];               /* query buffer */
     MYSQL *db = NULL;
     int option;
@@ -128,7 +129,7 @@ int main(int argc, char *argv[])
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
-            dp_status_timeout(timestamp - cfg.delay.task_timeout, &queue_counter);
+            dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
             dp_status_update(&queue_counter);
 
             continue;
@@ -151,7 +152,7 @@ int main(int argc, char *argv[])
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
-            dp_status_timeout(timestamp - cfg.delay.task_timeout, &queue_counter);
+            dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
             dp_status_update(&queue_counter);
 
             continue;
@@ -179,7 +180,7 @@ int main(int argc, char *argv[])
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
-            dp_status_timeout(timestamp - cfg.delay.task_timeout, &queue_counter);
+            dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
             dp_status_update(&queue_counter);
 
             continue;
@@ -200,16 +201,24 @@ int main(int argc, char *argv[])
             if (!dp_mysql_query(db, "SET @id := NULL"))
                 break;
 
+            /* setup environment if needed */
+            if (cfg.task.environment != NULL)
+                snprintf(buffer, BUFFER_LIMIT,
+                         "AND type LIKE '%%:%s:%%' ",
+                         cfg.task.environment);
+            else
+                strcpy(buffer, "");
+
             /* update task to 'working' state and extract its id */
             snprintf(query, QUERY_LIMIT,
                      "UPDATE %s SET status = 'working', run_after = '%ld' "
                      "WHERE id = "
                      "(SELECT * FROM (SELECT id FROM %s "
-                        "WHERE status IN ('new','working') AND run_after < %ld "
+                        "WHERE status IN ('new','working') AND run_after < %ld %s"
                         "ORDER BY priority DESC LIMIT 1) AS innerquery) "
                      "AND @id := id",
-                     cfg.mysql.table, timestamp + cfg.delay.task_timeout,
-                     cfg.mysql.table, timestamp);
+                     cfg.mysql.table, timestamp + cfg.task.timeout_delay,
+                     cfg.mysql.table, timestamp, buffer);
             if (!dp_mysql_query(db, query))
                 break;
 
@@ -369,7 +378,7 @@ int main(int argc, char *argv[])
                                     "SET status = 'new', result = '%s', run_after = '%ld' "
                                     "WHERE id = %d",
                                     cfg.mysql.table,
-                                    value, timestamp + cfg.delay.task_failed,
+                                    value, timestamp + cfg.task.failed_delay,
                                     worker->task.id) > 0) {
 
                         /* execute query */
@@ -384,7 +393,7 @@ int main(int argc, char *argv[])
                                  "SET status = 'new', result = '"ERROR_ASPRINTF"', run_after = '%ld' "
                                  "WHERE id = %d",
                                  cfg.mysql.table,
-                                 timestamp + cfg.delay.task_failed,
+                                 timestamp + cfg.task.failed_delay,
                                  worker->task.id);
 
                         /* execute query */
@@ -438,7 +447,7 @@ int main(int argc, char *argv[])
             sleep(cfg.sleep_loop);
 
         /* update status of workers and get number of running workers */
-        dp_status_timeout(timestamp - cfg.delay.task_timeout, &queue_counter);
+        dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
         dp_status_update(&queue_counter);
     }
 
@@ -620,10 +629,12 @@ dp_config_val dp_config_field(const char *name)
         return DP_CONFIG_GEARMAN_HOST;
     if (!strcmp(name, "gearman_port"))
         return DP_CONFIG_GEARMAN_PORT;
-    if (!strcmp(name, "delay_task_failed"))
-        return DP_CONFIG_DELAY_TASK_FAILED;
-    if (!strcmp(name, "delay_task_timeout"))
-        return DP_CONFIG_DELAY_TASK_TIMEOUT;
+    if (!strcmp(name, "task_failed_delay"))
+        return DP_CONFIG_TASK_FAILED_DELAY;
+    if (!strcmp(name, "task_timeout_delay"))
+        return DP_CONFIG_TASK_TIMEOUT_DELAY;
+    if (!strcmp(name, "task_environment"))
+        return DP_CONFIG_TASK_ENVIRONMENT;
     if (!strcmp(name, "log_dispatcher"))
         return DP_CONFIG_LOG_DISPATCHER;
     if (!strcmp(name, "log_worker"))
@@ -689,13 +700,27 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
         if (sscanf(value, "%d", &config->gearman.port) != 1)
             return false;
         break;
-    case DP_CONFIG_DELAY_TASK_FAILED:
-        if (sscanf(value, "%" SCNu16, &config->delay.task_failed) != 1)
+    case DP_CONFIG_TASK_FAILED_DELAY:
+        if (sscanf(value, "%" SCNu16, &config->task.failed_delay) != 1)
             return false;
         break;
-    case DP_CONFIG_DELAY_TASK_TIMEOUT:
-        if (sscanf(value, "%" SCNu16, &config->delay.task_timeout) != 1)
+    case DP_CONFIG_TASK_TIMEOUT_DELAY:
+        if (sscanf(value, "%" SCNu16, &config->task.timeout_delay) != 1)
             return false;
+        break;
+    case DP_CONFIG_TASK_ENVIRONMENT:
+        if (config->task.environment) free(config->task.environment);
+
+        /* handle processing of the environment */
+        if (!strcmp(value, "any")) {
+            /* free value if we should take ownership */
+            if (!if_dup) free(value);
+            config->task.environment = NULL;
+        } else {
+            if (!if_dup) config->task.environment = value;
+            else config->task.environment = dp_strdup(value);
+        }
+
         break;
     case DP_CONFIG_LOG_DISPATCHER:
         if (config->log.dispatcher) free(config->log.dispatcher);

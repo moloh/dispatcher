@@ -5,6 +5,7 @@
 * count number of dispatched jobs and log that
 * add version information command line option
 * add control of maximum number of children as command line option
+* add basic control over the environment of the task
 
 2009-07-09 dispatcher 0.9.95
 

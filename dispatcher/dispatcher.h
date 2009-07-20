@@ -65,9 +65,10 @@ typedef struct dp_config {
     } gearman;
 
     struct {
-        uint16_t task_failed;
-        uint16_t task_timeout;
-    } delay;
+        uint16_t failed_delay;
+        uint16_t timeout_delay;
+        char *environment;
+    } task;
 
     struct {
         char *dispatcher;
@@ -138,8 +139,9 @@ typedef enum dp_config_val {
     DP_CONFIG_MYSQL_PORT,
     DP_CONFIG_GEARMAN_HOST,
     DP_CONFIG_GEARMAN_PORT,
-    DP_CONFIG_DELAY_TASK_FAILED,
-    DP_CONFIG_DELAY_TASK_TIMEOUT,
+    DP_CONFIG_TASK_FAILED_DELAY,
+    DP_CONFIG_TASK_TIMEOUT_DELAY,
+    DP_CONFIG_TASK_ENVIRONMENT,
     DP_CONFIG_LOG_DISPATCHER,
     DP_CONFIG_LOG_WORKER,
     DP_CONFIG_LOG_LEVEL,
