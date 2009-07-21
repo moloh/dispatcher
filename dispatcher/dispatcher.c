@@ -290,7 +290,7 @@ int main(int argc, char *argv[])
                 void *worker_result = NULL;
                 size_t worker_result_size;
                 bool status = false;
-                char *value, *abuffer = NULL;
+                char *value, *elapsed, *abuffer = NULL;
 
                 /* initialize logger */
                 dp_logger_init(cfg.log.worker);
@@ -352,6 +352,7 @@ int main(int argc, char *argv[])
                 /* process reply from gearman */
                 /* NOTE: reply may contain non-escaped characters */
                 status = dp_gearman_get_status(worker_result, worker_result_size);
+                elapsed = dp_yaml_value_size(worker_result, worker_result_size, ":time_elapsed: ");
                 value = dp_struescape(worker_result, worker_result_size);
 
                 /* prepare query to database */
@@ -359,10 +360,11 @@ int main(int argc, char *argv[])
                     /* update task entry to indicate that it is done */
                     snprintf(query, QUERY_LIMIT,
                              "UPDATE %s "
-                             "SET status = 'done', result = '', result_timestamp = '%ld' "
+                             "SET status = 'done', result = '', "
+                                "result_timestamp = '%ld', time_elapsed = '%s' "
                              "WHERE id = %d",
                              cfg.mysql.table,
-                             timestamp,
+                             timestamp, elapsed,
                              worker->task.id);
 
                     /* execute query */
@@ -375,10 +377,12 @@ int main(int argc, char *argv[])
                     /* try to dynamically allocate buffer */
                     if (dp_asprintf(&abuffer,
                                     "UPDATE %s "
-                                    "SET status = 'new', result = '%s', run_after = '%ld' "
+                                    "SET status = 'new', result = '%s', run_after = '%ld', "
+                                        "result_timestamp = '%ld', time_elapsed = '%s' "
                                     "WHERE id = %d",
                                     cfg.mysql.table,
                                     value, timestamp + cfg.task.failed_delay,
+                                    timestamp, elapsed,
                                     worker->task.id) > 0) {
 
                         /* execute query */
@@ -390,10 +394,12 @@ int main(int argc, char *argv[])
                     } else {
                         snprintf(query, QUERY_LIMIT,
                                  "UPDATE %s "
-                                 "SET status = 'new', result = '"ERROR_ASPRINTF"', run_after = '%ld' "
+                                 "SET status = 'new', result = '"ERROR_ASPRINTF"', run_after = '%ld', "
+                                        "result_timestamp = '%ld', time_elapsed = '%s' "
                                  "WHERE id = %d",
                                  cfg.mysql.table,
                                  timestamp + cfg.task.failed_delay,
+                                 timestamp, elapsed,
                                  worker->task.id);
 
                         /* execute query */
