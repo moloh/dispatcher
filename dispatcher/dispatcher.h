@@ -36,8 +36,8 @@
 
 /* internal errors for MySQL results */
 /* NOTE: proper escaping for MySQL */
-#define ERROR_ASPRINTF "---\\n:status: :asprintf\\n"
-#define ERROR_FORK     "---\\n:status: :fork\\n"
+#define RESULT_ERROR_ASPRINTF "---\\n:status: :asprintf\\n"
+#define RESULT_ERROR_FORK     "---\\n:status: :fork\\n"
 
 #if 0
 #undef LOG_WARNING
@@ -205,6 +205,8 @@ dp_config cfg;                      /* global configuration object */
 bool initialized = false;           /* flag to indicate basic initialization */
 
 /* internal functions */
+int  dp_fork_exec      (dp_child *worker);  /* forked child function */
+
 bool dp_config_init    ();                  /* initialize configuration */
 bool dp_signal_init    ();                  /* initialize signal handling (logged) */
 bool dp_signal_block   (sigset_t *old);     /* block SIGCHLD and return old mask */
@@ -263,8 +265,8 @@ void  dp_sigusr12      (int signal);                                         /* 
 
 bool  dp_status_init   ();                                                   /* initialize child_status table */
 void  dp_status_free   ();                                                   /* free data associated with child_status table */
-void  dp_status_update (int32_t *queue_counter);                             /* process child_status table */
-void  dp_status_timeout(time_t timestamp, int32_t *queue_counter);           /* process child_status table timeouts */
+void  dp_status_update ();                                                   /* process child_status table */
+void  dp_status_timeout(time_t timestamp);                                   /* process child_status table timeouts */
 
 dp_child *dp_child_null ();           /* find first null entry in child_status array */
 dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */

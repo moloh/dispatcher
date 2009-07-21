@@ -2,15 +2,16 @@
 
 /* TODO: portable printf format for pid_t (now %d) */
 
+/* global buffers */
+char buffer[BUFFER_LIMIT];             /* buffer for various tasks */
+char query[QUERY_LIMIT];               /* query buffer */
+
 int main(int argc, char *argv[])
 {
-    int32_t queue_counter = child_counter; /* number of jobs in queue */
     uint32_t dispatched_counter = 0;       /* number of dispatched tasks */
     time_t sense_timestamp = 0;            /* timestamp for sense display */
     time_t terminate_timestamp = 0;        /* timestamp for termination sense display */
     time_t pause_timestamp = 0;            /* timestamp for pause sense display */
-    char buffer[BUFFER_LIMIT];             /* buffer for various tasks */
-    char query[QUERY_LIMIT];               /* query buffer */
     MYSQL *db = NULL;
     int option;
 
@@ -112,15 +113,15 @@ int main(int argc, char *argv[])
             if (cfg.sense.terminated &&
                 terminate_timestamp < timestamp) {
 
-                dp_logger(LOG_WARNING, "(%d/%d) Terminating...", queue_counter, child_limit);
-                fprintf(stderr, "(%d/%d) Terminating...\n", queue_counter, child_limit);
+                dp_logger(LOG_WARNING, "(%d/%d) Terminating...", child_counter, child_limit);
+                fprintf(stderr, "(%d/%d) Terminating...\n", child_counter, child_limit);
                 terminate_timestamp = timestamp + cfg.sense.terminated;
             }
 
             /* Check if all children are done
              * NOTE: we break main loop here
              */
-            if (queue_counter <= 0) {
+            if (child_counter <= 0) {
                 dp_logger(LOG_WARNING, "Terminated");
                 fprintf(stderr, "Terminated\n");
                 break;
@@ -129,8 +130,8 @@ int main(int argc, char *argv[])
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
-            dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
-            dp_status_update(&queue_counter);
+            dp_status_timeout(timestamp - cfg.task.timeout_delay);
+            dp_status_update();
 
             continue;
         }
@@ -145,15 +146,15 @@ int main(int argc, char *argv[])
                 pause_timestamp < timestamp) {
 
                 dp_logger(LOG_NOTICE, "Sleeping (%"PRIi32"/%"PRIi32")",
-                          queue_counter, child_limit);
+                          child_counter, child_limit);
                 pause_timestamp = timestamp + cfg.sense.paused;
             }
 
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
-            dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
-            dp_status_update(&queue_counter);
+            dp_status_timeout(timestamp - cfg.task.timeout_delay);
+            dp_status_update();
 
             continue;
         } else
@@ -165,7 +166,7 @@ int main(int argc, char *argv[])
 
             dp_logger(LOG_NOTICE, "Dispatching (%"PRIu32") (%"PRIi32"/%"PRIi32")",
                       dispatched_counter,
-                      queue_counter, child_limit);
+                      child_counter, child_limit);
 
             sense_timestamp = timestamp + cfg.sense.loop;
             dispatched_counter = 0;
@@ -176,12 +177,12 @@ int main(int argc, char *argv[])
          * NOTE: this prevents automatic update of task in database, even
          * when there is no space in queue
          */
-        if (queue_counter >= child_limit) {
+        if (child_counter >= child_limit) {
             sleep(cfg.sleep_loop);
 
             /* update status of workers and get number of workers */
-            dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
-            dp_status_update(&queue_counter);
+            dp_status_timeout(timestamp - cfg.task.timeout_delay);
+            dp_status_update();
 
             continue;
         }
@@ -194,7 +195,7 @@ int main(int argc, char *argv[])
             /* make double sure that there is space in queue for task,
              * we don't want to make it 'working' and do nothing later
              */
-            if (queue_counter >= QUERY_LIMIT)
+            if (child_counter >= child_limit)
                 break;
 
             /* reset counter */
@@ -263,7 +264,7 @@ int main(int argc, char *argv[])
              * NOTE: currently is there is job we get here only if there is
              * free spot in queue, but check of queue size anyway
              */
-            if (!is_job || queue_counter >= child_limit)
+            if (!is_job || child_counter >= child_limit)
                 break;
 
             /* find first empty entry */
@@ -282,149 +283,8 @@ int main(int argc, char *argv[])
             dispatched_counter += 1;
 
             /* fork worker */
-            if ((pid = fork()) == 0) { /* child */
-                /* NOTE: child does not manage memory or free resources */
-
-                gearman_client_st *client = NULL;
-                gearman_return_t error;
-                void *worker_result = NULL;
-                size_t worker_result_size;
-                bool status = false;
-                char *value, *yaml_elapsed, *abuffer = NULL;
-                double elapsed;
-
-                /* initialize logger */
-                dp_logger_init(cfg.log.worker);
-
-                dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
-                          queue_counter + 1, child_limit, worker->task.id);
-
-                /* gearman initialize */
-                if (!dp_gearman_init(&client))
-                    return EXIT_FAILURE;
-
-                /* process job */
-                worker_result = gearman_client_do(client,
-                                                  worker->task.type,
-                                                  NULL,
-                                                  worker->task.description,
-                                                  strlen(worker->task.description),
-                                                  &worker_result_size,
-                                                  &error);
-
-                /* get result timestamp */
-                timestamp = time(NULL);
-
-                /* NOTE: we initialize mysql only after gearman finished work
-                 *       this prevents timeouts from mysql connection but may
-                 *       prove problematic.  The task is in 'working' status,
-                 *       and when the task completes (or fails) and if we
-                 *       cannot connect to MySQL, we can't update the status.
-                 */
-
-                /* initialize mysql for worker */
-                my_init();
-
-                /* erase parent connection data */
-                memset(db, 0, sizeof(MYSQL));
-                if (!dp_mysql_init(&db) ||
-                    !dp_mysql_connect(db))
-                    return EXIT_FAILURE;
-
-                /* error executing work, retry */
-                if (error) {
-                    dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
-                              worker->task.id, error);
-
-                    /* prepare query */
-                    snprintf(query, QUERY_LIMIT,
-                             "UPDATE %s "
-                             "SET status = 'new', result = '' "
-                             "WHERE id = %d",
-                             cfg.mysql.table,
-                             worker->task.id);
-
-                    /* execute query */
-                    if (!dp_mysql_query(db, query))
-                        return EXIT_FAILURE;
-                    return error;
-                }
-
-                /* process reply from gearman */
-                /* NOTE: reply may contain non-escaped characters */
-                status = dp_gearman_get_status(worker_result, worker_result_size);
-                value = dp_struescape(worker_result, worker_result_size);
-
-                /* extract time elapsed value from gearman */
-                yaml_elapsed = dp_yaml_value_size(worker_result,
-                                                  worker_result_size,
-                                                  ":time_elapsed: ");
-
-                /* validate time elapsed value */
-                if (yaml_elapsed == NULL ||
-                    sscanf(yaml_elapsed, "%lf", &elapsed) < 1 )
-                    elapsed = 0.0;
-
-                /* prepare query to database */
-                if (status) {
-                    /* update task entry to indicate that it is done */
-                    snprintf(query, QUERY_LIMIT,
-                             "UPDATE %s "
-                             "SET status = 'done', result = '', "
-                                "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-                             "WHERE id = %d",
-                             cfg.mysql.table,
-                             timestamp, elapsed,
-                             worker->task.id);
-
-                    /* execute query */
-                    if (!dp_mysql_query(db, query))
-                        return EXIT_FAILURE;
-                } else {
-                    dp_logger(LOG_ERR, "Worker job (%d) FAILED",
-                              worker->task.id);
-
-                    /* try to dynamically allocate buffer */
-                    if (dp_asprintf(&abuffer,
-                                    "UPDATE %s "
-                                    "SET status = 'new', result = '%s', run_after = '%ld', "
-                                        "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-                                    "WHERE id = %d",
-                                    cfg.mysql.table,
-                                    value, timestamp + cfg.task.failed_delay,
-                                    timestamp, elapsed,
-                                    worker->task.id) > 0) {
-
-                        /* execute query */
-                        if (!dp_mysql_query(db, abuffer))
-                            return EXIT_FAILURE;
-
-                        free(abuffer);
-                    /* fallback, provide internal error */
-                    } else {
-                        snprintf(query, QUERY_LIMIT,
-                                 "UPDATE %s "
-                                 "SET status = 'new', result = '"ERROR_ASPRINTF"', run_after = '%ld', "
-                                        "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-                                 "WHERE id = %d",
-                                 cfg.mysql.table,
-                                 timestamp + cfg.task.failed_delay,
-                                 timestamp, elapsed,
-                                 worker->task.id);
-
-                        /* execute query */
-                        if (!dp_mysql_query(db, query))
-                            return EXIT_FAILURE;
-                    }
-                }
-
-                /* close mysql connection */
-                mysql_close(db);
-
-                dp_logger(LOG_DEBUG, "Worker finished");
-                return EXIT_SUCCESS;
-
-            } /* end child */
+            if ((pid = fork()) == 0)
+                return dp_fork_exec(worker);
 
             /* detect fork error */
             /* fork failed */
@@ -433,7 +293,7 @@ int main(int argc, char *argv[])
 
                 snprintf(query, QUERY_LIMIT,
                          "UPDATE %s "
-                         "SET status = 'new', result = '"ERROR_FORK"', run_after = '%ld' "
+                         "SET status = 'new', result = '"RESULT_ERROR_FORK"', run_after = '%ld' "
                          "WHERE id = %d",
                          cfg.mysql.table,
                          timestamp,
@@ -450,7 +310,6 @@ int main(int argc, char *argv[])
 
                 /* increase task count */
                 child_counter += 1;
-                queue_counter += 1;
             }
         /* END fake loop for dispatching "exceptions" */
         } while (false);
@@ -459,12 +318,12 @@ int main(int argc, char *argv[])
          * NOTE: sleep terminates when we receive signal
          * NOTE: sleep only when no task are waiting or we have full queue
          */
-        if (!is_job || (is_job && queue_counter >= child_limit))
+        if (!is_job || (is_job && child_counter >= child_limit))
             sleep(cfg.sleep_loop);
 
         /* update status of workers and get number of running workers */
-        dp_status_timeout(timestamp - cfg.task.timeout_delay, &queue_counter);
-        dp_status_update(&queue_counter);
+        dp_status_timeout(timestamp - cfg.task.timeout_delay);
+        dp_status_update();
     }
 
     /* close mysql connection */
@@ -474,6 +333,150 @@ int main(int argc, char *argv[])
     dp_config_free(&cfg);
     dp_status_free();
 
+    return EXIT_SUCCESS;
+}
+
+int dp_fork_exec(dp_child *worker)
+{
+    gearman_client_st *client = NULL;   /* gearman client */
+    gearman_return_t error;             /* gearman error */
+    void *worker_result = NULL;         /* gearman worker result */
+    size_t worker_result_size;          /* gearman worker result size */
+
+    time_t timestamp;                   /* fork execution timestamp */
+    const char *sql;                    /* buffer for query formatted string */
+    MYSQL *db = NULL;
+
+    bool status = false;
+    char *value, *yaml_elapsed, *abuffer = NULL;
+    double elapsed;
+
+    /* initialize logger */
+    dp_logger_init(cfg.log.worker);
+
+    dp_logger(LOG_DEBUG, "Worker forked (%d/%d) job (%d)",
+              child_counter + 1, child_limit, worker->task.id);
+
+    /* gearman initialize */
+    if (!dp_gearman_init(&client))
+        return EXIT_FAILURE;
+
+    /* process job */
+    worker_result = gearman_client_do(client,
+                                      worker->task.type,
+                                      NULL,
+                                      worker->task.description,
+                                      strlen(worker->task.description),
+                                      &worker_result_size,
+                                      &error);
+
+    /* get result timestamp */
+    timestamp = time(NULL);
+
+    /* NOTE: we initialize mysql only after gearman finished work.
+     *       This prevents timeouts from mysql connection when task execution
+     *       takes more time.
+     */
+
+    /* initialize mysql for worker */
+    my_init();
+
+    /* initialize connection data */
+    if (!dp_mysql_init(&db) ||
+        !dp_mysql_connect(db))
+        return EXIT_FAILURE;
+
+    /* error executing work, retry */
+    if (error) {
+        dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
+                  worker->task.id, error);
+
+        /* prepare query */
+        snprintf(query, QUERY_LIMIT,
+                 "UPDATE %s "
+                 "SET status = 'new', result = '' "
+                 "WHERE id = %d",
+                 cfg.mysql.table,
+                 worker->task.id);
+
+        /* execute query */
+        if (!dp_mysql_query(db, query))
+            return EXIT_FAILURE;
+        return error;
+    }
+
+    /* process reply from gearman */
+    /* NOTE: reply may contain non-escaped characters */
+    status = dp_gearman_get_status(worker_result, worker_result_size);
+    value = dp_struescape(worker_result, worker_result_size);
+
+    /* extract time elapsed value from gearman */
+    yaml_elapsed = dp_yaml_value_size(worker_result,
+                                      worker_result_size,
+                                      ":time_elapsed: ");
+
+    /* validate time elapsed value */
+    if (yaml_elapsed == NULL ||
+        sscanf(yaml_elapsed, "%lf", &elapsed) < 1)
+        elapsed = 0.0;
+
+    /* prepare query to database */
+    if (status) {
+        /* update task entry to indicate that it is done */
+        snprintf(query, QUERY_LIMIT,
+                 "UPDATE %s "
+                 "SET status = 'done', result = '', "
+                    "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+                 "WHERE id = %d",
+                 cfg.mysql.table,
+                 timestamp, elapsed,
+                 worker->task.id);
+
+        /* execute query */
+        if (!dp_mysql_query(db, query))
+            return EXIT_FAILURE;
+    } else {
+        /* update task entry to indicate that it failed */
+        /* NOTE: we fail task and insert new one */
+        dp_logger(LOG_ERR, "Worker job (%d) FAILED",
+                  worker->task.id);
+
+        sql = "UPDATE %s "
+            "SET status = 'new', result = '%s', run_after = '%ld', "
+                "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+            "WHERE id = %d";
+
+        /* update status of the task */
+        /* try to dynamically allocate buffer */
+        if (dp_asprintf(&abuffer, sql,
+                        cfg.mysql.table,
+                        value, timestamp + cfg.task.failed_delay,
+                        timestamp, elapsed,
+                        worker->task.id) > 0) {
+
+            /* execute query */
+            if (!dp_mysql_query(db, abuffer))
+                return EXIT_FAILURE;
+
+            free(abuffer);
+        /* fallback, provide internal error */
+        } else {
+            snprintf(query, QUERY_LIMIT, sql,
+                     cfg.mysql.table,
+                     RESULT_ERROR_ASPRINTF, timestamp + cfg.task.failed_delay,
+                     timestamp, elapsed,
+                     worker->task.id);
+
+            /* execute query */
+            if (!dp_mysql_query(db, query))
+                return EXIT_FAILURE;
+        }
+    }
+
+    /* close mysql connection */
+    mysql_close(db);
+
+    dp_logger(LOG_DEBUG, "Worker finished");
     return EXIT_SUCCESS;
 }
 
@@ -1564,14 +1567,10 @@ void dp_status_free()
     }
 }
 
-void dp_status_update(int32_t *queue_counter)
+void dp_status_update()
 {
     int status;
     pid_t pid;
-
-    /* update queue size if needed */
-    if (queue_counter != NULL)
-        *queue_counter = child_counter;
 
     /* check if we have pending events */
     if (!child_flag)
@@ -1661,15 +1660,9 @@ void dp_status_update(int32_t *queue_counter)
     if (child_counter < 0)
         dp_logger(LOG_ERR, "Invalid queue size (%d)",
                   child_counter);
-
-    /* update queue size if needed
-     * NOTE: value might changed (and probably did)
-     */
-    if (queue_counter != NULL)
-        *queue_counter = child_counter;
 }
 
-void dp_status_timeout(time_t timestamp, int32_t *queue_counter)
+void dp_status_timeout(time_t timestamp)
 {
     /* process possible timeouts */
     for (size_t i = 0; i < child_limit; ++i)
@@ -1687,10 +1680,6 @@ void dp_status_timeout(time_t timestamp, int32_t *queue_counter)
             /* NOTE: parent handlers are used because of fork */
             kill(child_status[i].pid, SIGKILL);
         }
-
-    /* update queue size if needed */
-    if (queue_counter != NULL)
-        *queue_counter = child_counter;
 }
 
 dp_child *dp_child_null()
