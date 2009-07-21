@@ -23,7 +23,7 @@
 #ifdef __GNUC__
 #define ATTRIBUTE_PRINTF(A1,A2) __attribute__ ((format  (printf,A1,A2)))
 #define ATTRIBUTE_SENTINEL      __attribute__ ((sentinel))
-#define ATTRIBUTE_NONNULL(...)  __attribute__ ((nonnull (__VA_ARGS__)));
+#define ATTRIBUTE_NONNULL(...)  __attribute__ ((nonnull (__VA_ARGS__)))
 #else
 #define ATTRIBUTE_PRINTF(A1,A2)
 #define ATTRIBUTE_SENTINEL
@@ -232,6 +232,11 @@ bool  dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract 
 
 void  dp_mysql_task_free  (dp_task *task);                           /* free data associated with task */
 void  dp_mysql_task_clear (dp_task *task);                           /* clear data associated with task */
+
+char *dp_yaml_value       (const char *yaml, const char *field)              /* get field value (single-line) from string */
+                           ATTRIBUTE_NONNULL(1,2);
+char *dp_yaml_value_size  (const char *yaml, size_t size, const char *field) /* get field value (single-line) from memory */
+                           ATTRIBUTE_NONNULL(3);
 
 void  dp_logger_init   (const char *ident);                                  /* initialize logging capabilities */
 void  dp_logger        (int priority, const char *message, ...)              /* log message with specific priority */

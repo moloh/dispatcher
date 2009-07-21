@@ -882,7 +882,6 @@ bool dp_gearman_get_status(const char *result, size_t size)
     return true;
 }
 
-
 /* set single "hash" value from gearman parser */
 bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
 {
@@ -1179,6 +1178,42 @@ void dp_mysql_task_clear(dp_task *task)
     task->type = NULL;
     task->status = NULL;
     task->description = NULL;
+}
+
+char *dp_yaml_value(const char *yaml, const char *field)
+{
+    char *pos, *end;
+
+    pos = strstr(yaml, field);
+    if (pos == NULL)
+        return NULL;
+
+    /* move to end of the string */
+    pos += strlen(field);
+
+    end = strchr(pos, '\n');
+    if (end == NULL)
+        return NULL;
+
+    return dp_strudup(pos, end - pos);
+}
+
+char *dp_yaml_value_size(const char *yaml, size_t size, const char *field)
+{
+    char *pos, *end;
+
+    pos = dp_strustr(yaml, size, field);
+    if (pos == NULL)
+        return NULL;
+
+    /* move to end of the string */
+    pos += strlen(field);
+
+    end = dp_struchr(pos, size - (pos - yaml), '\n');
+    if (end == NULL)
+        return NULL;
+
+    return dp_strudup(pos, end - pos);
 }
 
 char *dp_strdup(const char *str)
@@ -1567,13 +1602,20 @@ void dp_status_update(int32_t *queue_counter)
                 /* log termination, check whether we terminated child because
                  * of timeout
                  */
-                if (worker->stamp == 0)
+                if (worker->stamp == 0) {
+                    char *class = dp_yaml_value(worker->task.description, ":class: ");
+                    char *method = dp_yaml_value(worker->task.description, ":method_name: ");
+
                     dp_logger(LOG_ERR,
-                              "Child worker (%d) timeout (job -> %d)",
-                              worker->pid, worker->task.id);
-                else
+                              "Child worker (%d) job (%d) timeout (%s -> %s)",
+                              worker->pid, worker->task.id,
+                              class, method);
+
+                    free(class);
+                    free(method);
+                } else
                     dp_logger(LOG_ERR,
-                              "Child worker (%d) terminated (job -> %d)",
+                              "Child worker (%d) job (%d) terminated",
                               worker->pid, worker->task.id);
 
                 child_counter -= 1;
