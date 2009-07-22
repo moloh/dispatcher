@@ -116,6 +116,12 @@ int main(int argc, char *argv[])
             if (terminate_flag >= FORCE_TERMINATE_COUNT) {
                 dp_logger(LOG_WARNING, "Forced instant termination");
                 fprintf(stderr, "Forced instant termination\n");
+
+                /* kill all child processes */
+                for (size_t i = 0; i < child_limit; ++i)
+                    if (!child_status[i].null)
+                        kill(child_status[i].pid, SIGKILL);
+
                 break;
             }
 
