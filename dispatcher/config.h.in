@@ -1,8 +1,5 @@
 /* config.h.in.  Generated from configure.in by autoheader.  */
 
-/* Define to 1 if you have the `asprintf' function. */
-#undef HAVE_ASPRINTF
-
 /* Define to 1 if you don't have `vprintf' but do have `_doprnt.' */
 #undef HAVE_DOPRNT
 
