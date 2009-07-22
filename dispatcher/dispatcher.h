@@ -31,13 +31,13 @@
 #endif /* __GNUC__ */
 
 /* global defines */
-#define QUERY_LIMIT        8192  /* maximum MySQL query length */
-#define BUFFER_LIMIT       1024  /* maximal length of internal buffers */
+#define BUFFER_QUERY    8192  /* initial and minimal size of query buffer */
+#define BUFFER_SIZE_MAX 1024  /* maximal length of internal buffer */
 
 /* internal errors for MySQL results */
 /* NOTE: proper escaping for MySQL */
-#define RESULT_ERROR_ASPRINTF "---\\n:status: :asprintf\\n"
-#define RESULT_ERROR_FORK     "---\\n:status: :fork\\n"
+#define RESULT_ERROR_FORK     "---\\n:status: :fail\\n:message: dispatcher fork failed\\n"
+#define RESULT_ERROR_GEARMAN  "---\\n:status: :fail\\n:message: gearman work not successful\\n"
 
 #if 0
 #undef LOG_WARNING
@@ -90,6 +90,12 @@ typedef struct dp_enum {
     const char *name;
     int value;
 } dp_enum;
+
+/* simple buffer */
+typedef struct dp_buffer {
+    char *str;        /* string associated with buffer */
+    size_t pool;      /* allocated length of buffer */
+} dp_buffer;
 
 /* task definition structure */
 typedef struct dp_task {
@@ -216,6 +222,12 @@ dp_config_val dp_config_field (const char *name);                               
 bool          dp_config_set   (dp_config *config, dp_config_val field, char *value, bool if_dup); /* assign field value in config */
 void          dp_config_free  (dp_config *config);                                                /* free data associated with config */
 
+dp_buffer *dp_buffer_new      (size_t pool);                                     /* allocate buffer with specific pool size */
+dp_buffer *dp_buffer_init     (dp_buffer *buf, size_t pool);                     /* initialize buffer with specific pool size */
+void       dp_buffer_free     (dp_buffer *buf);                                  /* free buffer */
+dp_buffer *dp_buffer_printf   (dp_buffer *buf, const char *format, ...)          /* insert format string, grow as necessary */
+                               ATTRIBUTE_PRINTF(2,3);
+
 bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
 bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
 bool dp_gearman_get_status   (const char *result, size_t size);                  /* get status from gearman reply */
@@ -247,8 +259,6 @@ void  dp_logger        (int priority, const char *message, ...)              /* 
 dp_enum *dp_enum_name (dp_enum *self, const char *name);                     /* extract specific enum by name */
 dp_enum *dp_enum_value(dp_enum *self, int value);                            /* extract specific enum by value */
 
-int   dp_asprintf      (char **strp, const char *format, ...)                /* portability wrapper, allocated sprintf */
-                        ATTRIBUTE_PRINTF(2,3);
 char *dp_strdup        (const char *str);                                    /* dup string helper */
 char *dp_strudup       (const char *str, size_t length);                     /* sized dup string helper */
 char *dp_struchr       (const char *str, size_t length, char character);     /* sized strchr string helper */

@@ -3,8 +3,8 @@
 /* TODO: portable printf format for pid_t (now %d) */
 
 /* global buffers */
-char buffer[BUFFER_LIMIT];             /* buffer for various tasks */
-char query[QUERY_LIMIT];               /* query buffer */
+char        buffer[BUFFER_SIZE_MAX]; /* buffer for various tasks */
+dp_buffer  *query = NULL;            /* query buffer */
 
 int main(int argc, char *argv[])
 {
@@ -12,6 +12,7 @@ int main(int argc, char *argv[])
     time_t sense_timestamp = 0;            /* timestamp for sense display */
     time_t terminate_timestamp = 0;        /* timestamp for termination sense display */
     time_t pause_timestamp = 0;            /* timestamp for pause sense display */
+    const char *sql;                       /* static query buffer */
     MYSQL *db = NULL;
     int option;
 
@@ -44,6 +45,9 @@ int main(int argc, char *argv[])
                 printf(usage);
                 return EXIT_FAILURE;
         }
+
+    /* initialize buffers */
+    query = dp_buffer_new(BUFFER_QUERY);
 
     /* initialize signal and status processing */
     if (!dp_config_init() ||
@@ -204,23 +208,26 @@ int main(int argc, char *argv[])
 
             /* setup environment if needed */
             if (cfg.task.environment != NULL)
-                snprintf(buffer, BUFFER_LIMIT,
+                snprintf(buffer, BUFFER_SIZE_MAX,
                          "AND type LIKE '%%:%s:%%' ",
                          cfg.task.environment);
             else
                 strcpy(buffer, "");
 
             /* update task to 'working' state and extract its id */
-            snprintf(query, QUERY_LIMIT,
-                     "UPDATE %s SET status = 'working', run_after = '%ld' "
-                     "WHERE id = "
-                     "(SELECT * FROM (SELECT id FROM %s "
-                        "WHERE status IN ('new','working') AND run_after < %ld %s"
-                        "ORDER BY priority DESC LIMIT 1) AS innerquery) "
-                     "AND @id := id",
-                     cfg.mysql.table, timestamp + cfg.task.timeout_delay,
-                     cfg.mysql.table, timestamp, buffer);
-            if (!dp_mysql_query(db, query))
+            sql = "UPDATE %s "
+                  "SET status = 'working', run_after = '%ld' "
+                  "WHERE id = "
+                      "(SELECT * FROM (SELECT id FROM %s "
+                      "WHERE status IN ('new','working') AND run_after < %ld %s"
+                      "ORDER BY priority DESC LIMIT 1) AS innerquery) "
+                  "AND @id := id";
+            dp_buffer_printf(query, sql,
+                             cfg.mysql.table,
+                             timestamp + cfg.task.timeout_delay,
+                             cfg.mysql.table,
+                             timestamp, buffer);
+            if (!dp_mysql_query(db, query->str))
                 break;
 
             /* this should always be NULL */
@@ -240,10 +247,10 @@ int main(int argc, char *argv[])
                 break;
 
             /* extract task */
-            snprintf(query, QUERY_LIMIT,
-                     "SELECT * FROM %s WHERE id = %d",
-                     cfg.mysql.table, id);
-            if (!dp_mysql_query(db, query))
+            sql = "SELECT * FROM %s WHERE id = %d";
+            dp_buffer_printf(query, sql,
+                             cfg.mysql.table, id);
+            if (!dp_mysql_query(db, query->str))
                 break;
 
             result = mysql_store_result(db);
@@ -269,8 +276,18 @@ int main(int argc, char *argv[])
 
             /* find first empty entry */
             if ((worker = dp_child_null()) == NULL) {
-                dp_logger(LOG_ERR, "Inconsistence in dispatching job (%d): No more free workers",
+                dp_logger(LOG_ERR,
+                          "Internal job error (%d): No more free workers",
                           task.id);
+
+                /* insert task back to queue */
+                sql = "UPDATE %s SET status = 'new' WHERE id = %d";
+                dp_buffer_printf(query, sql,
+                                 cfg.mysql.table,
+                                 worker->task.id);
+                dp_mysql_query(db, query->str);
+
+                /* stop processing */
                 break;
             }
 
@@ -284,6 +301,7 @@ int main(int argc, char *argv[])
 
             /* fork worker */
             if ((pid = fork()) == 0)
+                /* executed in fork only */
                 return dp_fork_exec(worker);
 
             /* detect fork error */
@@ -291,17 +309,12 @@ int main(int argc, char *argv[])
             if (pid < 0) {
                 dp_logger(LOG_ERR, "Fork failed!");
 
-                snprintf(query, QUERY_LIMIT,
-                         "UPDATE %s "
-                         "SET status = 'new', result = '"RESULT_ERROR_FORK"', run_after = '%ld' "
-                         "WHERE id = %d",
-                         cfg.mysql.table,
-                         timestamp,
-                         worker->task.id);
-
-                /* execute query */
-                if (!dp_mysql_query(db, query))
-                    return EXIT_FAILURE;
+                /* insert task back to queue */
+                sql = "UPDATE %s SET status = 'new' WHERE id = %d";
+                dp_buffer_printf(query, sql,
+                                 cfg.mysql.table,
+                                 worker->task.id);
+                dp_mysql_query(db, query->str);
 
             /* fork successful */
             } else {
@@ -330,6 +343,7 @@ int main(int argc, char *argv[])
     mysql_close(db);
 
     /* free configuration resources */
+    dp_buffer_free(query);
     dp_config_free(&cfg);
     dp_status_free();
 
@@ -344,11 +358,12 @@ int dp_fork_exec(dp_child *worker)
     size_t worker_result_size;          /* gearman worker result size */
 
     time_t timestamp;                   /* fork execution timestamp */
-    const char *sql;                    /* buffer for query formatted string */
+    const char *sql;                    /* static query buffer */
     MYSQL *db = NULL;
 
+    /* data extracted from worker result */
+    char *value, *yaml_elapsed;
     bool status = false;
-    char *value, *yaml_elapsed, *abuffer = NULL;
     double elapsed;
 
     /* initialize logger */
@@ -391,17 +406,34 @@ int dp_fork_exec(dp_child *worker)
         dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
                   worker->task.id, error);
 
-        /* prepare query */
-        snprintf(query, QUERY_LIMIT,
-                 "UPDATE %s "
-                 "SET status = 'new', result = '' "
-                 "WHERE id = %d",
-                 cfg.mysql.table,
-                 worker->task.id);
-
-        /* execute query */
-        if (!dp_mysql_query(db, query))
+        /* update task to describe error */
+        sql = "UPDATE %s "
+              "SET status = 'failed', result = '%s' "
+              "WHERE id = %d";
+        dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
+                         RESULT_ERROR_GEARMAN,
+                         worker->task.id);
+        if (!dp_mysql_query(db, query->str))
             return EXIT_FAILURE;
+
+        /* escape work details */
+        char *type = dp_strescape(worker->task.type);
+        char *description = dp_strescape(worker->task.description);
+
+        /* specify run delay */
+        time_t run_after = timestamp + cfg.task.failed_delay;
+
+        /* insert task one more time */
+        sql = "INSERT INTO %s "
+              "(type, description, status, priority, run_after) "
+              "VALUES ('%s', '%s', 'new', '%d', '%ld')";
+        dp_buffer_printf(query, sql,
+                         type, description,
+                         worker->task.priority, run_after);
+        if (!dp_mysql_query(db, query->str))
+            return EXIT_FAILURE;
+
         return error;
     }
 
@@ -422,56 +454,62 @@ int dp_fork_exec(dp_child *worker)
 
     /* prepare query to database */
     if (status) {
-        /* update task entry to indicate that it is done */
-        snprintf(query, QUERY_LIMIT,
-                 "UPDATE %s "
-                 "SET status = 'done', result = '', "
-                    "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-                 "WHERE id = %d",
-                 cfg.mysql.table,
-                 timestamp, elapsed,
-                 worker->task.id);
 
-        /* execute query */
-        if (!dp_mysql_query(db, query))
+        /* update task entry to indicate that it is done */
+        sql = "UPDATE %s "
+              "SET status = 'done', result = '', "
+                  "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+              "WHERE id = %d";
+        dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
+                         timestamp, elapsed,
+                         worker->task.id);
+        if (!dp_mysql_query(db, query->str))
             return EXIT_FAILURE;
     } else {
+
         /* update task entry to indicate that it failed */
-        /* NOTE: we fail task and insert new one */
+        /* NOTE: we update task status and insert new one */
         dp_logger(LOG_ERR, "Worker job (%d) FAILED",
                   worker->task.id);
 
-        sql = "UPDATE %s "
-            "SET status = 'new', result = '%s', run_after = '%ld', "
-                "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-            "WHERE id = %d";
-
         /* update status of the task */
-        /* try to dynamically allocate buffer */
-        if (dp_asprintf(&abuffer, sql,
-                        cfg.mysql.table,
-                        value, timestamp + cfg.task.failed_delay,
-                        timestamp, elapsed,
-                        worker->task.id) > 0) {
+        sql = "UPDATE %s "
+              "SET status = 'failed', result = '%s', "
+                  "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+              "WHERE id = %d";
+        dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
+                         value, timestamp, elapsed,
+                         worker->task.id);
+        if (!dp_mysql_query(db, query->str))
+            return EXIT_FAILURE;
 
-            /* execute query */
-            if (!dp_mysql_query(db, abuffer))
-                return EXIT_FAILURE;
+        /* escape work details */
+        char *type = dp_strescape(worker->task.type);
+        char *description = dp_strescape(worker->task.description);
 
-            free(abuffer);
-        /* fallback, provide internal error */
-        } else {
-            snprintf(query, QUERY_LIMIT, sql,
-                     cfg.mysql.table,
-                     RESULT_ERROR_ASPRINTF, timestamp + cfg.task.failed_delay,
-                     timestamp, elapsed,
-                     worker->task.id);
+        /* specify run delay */
+        time_t run_after = timestamp + cfg.task.failed_delay;
 
-            /* execute query */
-            if (!dp_mysql_query(db, query))
-                return EXIT_FAILURE;
-        }
+        /* insert task to rerun */
+        sql = "INSERT INTO %s "
+              "(type, description, status, priority, run_after) "
+              "VALUES ('%s', '%s', 'new', '%d', '%ld')";
+        dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
+                         type, description,
+                         worker->task.priority, run_after);
+        if (!dp_mysql_query(db, query->str))
+            return EXIT_FAILURE;
+
+        /* free temporary buffers */
+        free(description);
+        free(type);
     }
+
+    /* close gearman connection */
+    gearman_client_free(client);
 
     /* close mysql connection */
     mysql_close(db);
@@ -488,9 +526,9 @@ int dp_fork_exec(dp_child *worker)
 bool dp_config_init()
 {
     FILE *fconfig;
-    char buffer[BUFFER_LIMIT];
-    char value[BUFFER_LIMIT];
-    char name[BUFFER_LIMIT];
+    char buffer[BUFFER_SIZE_MAX];
+    char value[BUFFER_SIZE_MAX];
+    char name[BUFFER_SIZE_MAX];
     dp_config_val field;
     uint32_t line;
     bool is_eof = false, is_error = false;
@@ -514,7 +552,7 @@ bool dp_config_init()
     }
 
     /* read each line separately */
-    for (line = 1; fgets(buffer, BUFFER_LIMIT, fconfig); ++line) {
+    for (line = 1; fgets(buffer, BUFFER_SIZE_MAX, fconfig); ++line) {
 
         /* omit comments, empty lines */
         if (*buffer == '#' || *buffer == '\n')
@@ -795,6 +833,85 @@ void dp_config_free(dp_config *config)
         free(config->log.dispatcher);
         free(config->log.worker);
     }
+}
+
+dp_buffer *dp_buffer_new(size_t pool)
+{
+    dp_buffer *buf;
+
+    /* allocate buffer */
+    buf = malloc(sizeof(dp_buffer));
+    if (buf == NULL)
+        return NULL;
+
+    /* allocate buffer pool */
+    if (dp_buffer_init(buf, pool) == NULL) {
+        free(buf);
+        return NULL;
+    }
+
+    return buf;
+}
+
+dp_buffer *dp_buffer_init(dp_buffer *buf, size_t pool)
+{
+    /* allocate pool */
+    buf->str = malloc(pool);
+    if (buf->str == NULL)
+        return NULL;
+
+    /* initialize buffer */
+    buf->str[0] = '\0';
+    buf->pool = pool;
+
+    return buf;
+}
+
+void dp_buffer_free(dp_buffer *buf)
+{
+    if (buf != NULL) {
+        free(buf->str);
+        free(buf);
+    }
+}
+
+dp_buffer *dp_buffer_printf(dp_buffer *buf, const char *format, ...)
+{
+    va_list arg;
+    size_t len;
+
+    /* insert format string */
+    va_start(arg, format);
+    len = vsnprintf(buf->str, buf->pool, format, arg);
+    va_end(arg);
+
+    /* check if everything was inserted */
+    if (len >= buf->pool) {
+
+        /* allocate bigger buffer */
+        char *str = malloc(len + 1);
+        if (str == NULL) {
+            /* failback buffer */
+            buf->str[0] = '\0';
+
+            /* log our problem */
+            dp_logger(LOG_ERR, "Memory exhaustion!");
+
+            return NULL;
+        }
+
+        /* retry insert format string */
+        va_start(arg, format);
+        vsnprintf(str, len + 1, format, arg);
+        va_end(arg);
+
+        /* adjust buffer */
+        free(buf->str);
+        buf->str = str;
+        buf->pool = len + 1;
+    }
+
+    return buf;
 }
 
 /* basic, logged initialization of gearman */
@@ -1108,7 +1225,6 @@ bool dp_mysql_query(MYSQL *db, const char *query)
 /* convert single row into typed task */
 bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
 {
-    char buffer[BUFFER_LIMIT];
     MYSQL_FIELD *field;
     MYSQL_ROW row;
     size_t size;
@@ -1148,9 +1264,6 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
         else if (!strcmp(field->name, "run_after"))
             sscanf(row[i], "%ld", &task->run_after);
     }
-
-    /* process id */
-    snprintf(buffer, BUFFER_LIMIT, "\n---\n:task_id: \"%d\"", task->id);
 
     /* postprocess fields, allocate strings */
     if (task->type)
@@ -1454,46 +1567,6 @@ dp_enum *dp_enum_value(dp_enum *self, int value)
         if (self->value == value)
             return self;
     return NULL;
-}
-
-int dp_asprintf(char **str, const char *format, ...)
-{
-    va_list arg;
-    int retval = -1;
-
-    /* initialize variadic macros */
-    va_start(arg, format);
-
-    /* initialize result */
-    *str = NULL;
-
-#ifdef HAVE_ASPRINTF
-    retval = vasprintf(str, format, arg);
-#else /* HAVE_ASPRINTF */
-    char character;
-    int size;
-
-    /* get size of string */
-    if ((size = vsnprintf(&character, 1, format, arg)) < 0)
-        goto retval;
-
-    /* allocate memory */
-    if ((*str = malloc(size+1)) == NULL)
-        goto retval;
-
-    /* reinitialize variadic macros */
-    va_end(arg);
-    va_start(arg, format);
-
-    if ((retval = vsprintf(*str, format, arg)) < 0) {
-        free(*str); *str = NULL;
-        goto retval;
-    }
-
-retval:
-#endif /* HAVE_ASPRINTF */
-    va_end(arg);
-    return retval;
 }
 
 void dp_sigchld(int signal)
