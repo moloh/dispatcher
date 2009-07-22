@@ -670,7 +670,6 @@ bool dp_fork_signal_init()
     action.sa_flags = 0;
     /* install signal handler */
     sigaction(SIGTERM, &action, NULL);
-    sigaction(SIGINT, &action, NULL);
 
     return true;
 }
