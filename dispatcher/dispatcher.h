@@ -31,8 +31,9 @@
 #endif /* __GNUC__ */
 
 /* global defines */
-#define BUFFER_QUERY    8192  /* initial and minimal size of query buffer */
-#define BUFFER_SIZE_MAX 1024  /* maximal length of internal buffer */
+#define BUFFER_QUERY          8192  /* initial and minimal size of query buffer */
+#define BUFFER_SIZE_MAX       1024  /* maximal length of internal buffer */
+#define FORCE_TERMINATE_COUNT 3     /* number of terminate signals that force quit */
 
 /* internal errors for MySQL results */
 /* NOTE: proper escaping for MySQL */
@@ -187,16 +188,16 @@ dp_enum dp_log_level[] = {
 };
 
 /* global flag to indicate child state change */
-volatile sig_atomic_t child_flag = false;
+volatile sig_atomic_t child_flag = 0;
 
 /* global flag to pause dispatching */
-volatile sig_atomic_t pause_flag = false;
+volatile sig_atomic_t pause_flag = 0;
 
 /* global flag to terminate dispatcher */
-volatile sig_atomic_t terminate_flag = false;
+volatile sig_atomic_t terminate_flag = 0;
 
 /* global flag to reload configuration */
-volatile sig_atomic_t reload_flag = false;
+volatile sig_atomic_t reload_flag = 0;
 
 /* global status variables */
 int       child_counter = 0;        /* current number of running children */

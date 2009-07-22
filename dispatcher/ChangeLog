@@ -3,6 +3,7 @@
 * add more detailed timeout report
 * add handling of task elapsed time if value returned from worker
 * modify failed tasks processing, use failed state and reinsert new
+* add forced termination after few SIGINTs (CTRL-C) or default kill (SIGTERM)
 
 2009-07-20 dispatcher 0.9.96
 

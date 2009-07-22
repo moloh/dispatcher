@@ -113,6 +113,12 @@ int main(int argc, char *argv[])
                 terminate_timestamp = timestamp + cfg.sense.terminated;
             }
 
+            if (terminate_flag >= FORCE_TERMINATE_COUNT) {
+                dp_logger(LOG_WARNING, "Forced instant termination");
+                fprintf(stderr, "Forced instant termination\n");
+                break;
+            }
+
             /* Check if we should print sense information during terminate */
             if (cfg.sense.terminated &&
                 terminate_timestamp < timestamp) {
@@ -1575,7 +1581,7 @@ void dp_sigchld(int signal)
     (void)signal;
 
     /* update flag to note pending processing */
-    child_flag = true;
+    child_flag = 1;
 }
 
 void dp_sighup(int signal)
@@ -1584,7 +1590,7 @@ void dp_sighup(int signal)
     (void)signal;
 
     /* dispatcher should reload configuration */
-    reload_flag = true;
+    reload_flag = 1;
 }
 
 void dp_sigtermint(int signal)
@@ -1593,7 +1599,7 @@ void dp_sigtermint(int signal)
     (void)signal;
 
     /* dispatcher should terminate */
-    terminate_flag = true;
+    terminate_flag += 1;
 }
 
 void dp_sigusr12(int signal)
@@ -1603,9 +1609,9 @@ void dp_sigusr12(int signal)
 
     /* Toggle flag to pause or resume dispatching */
     if (pause_flag)
-        pause_flag = false;
+        pause_flag = 0;
     else
-        pause_flag = true;
+        pause_flag = 1;
 }
 
 bool dp_status_init()
