@@ -214,10 +214,11 @@ bool initialized = false;           /* flag to indicate basic initialization */
 /* internal functions */
 int  dp_fork_exec      (dp_child *worker);  /* forked child function */
 
-bool dp_config_init    ();                  /* initialize configuration */
-bool dp_signal_init    ();                  /* initialize signal handling (logged) */
-bool dp_signal_block   (sigset_t *old);     /* block SIGCHLD and return old mask */
-bool dp_signal_restore (sigset_t *restore); /* restore old mask */
+bool dp_config_init      ();               /* initialize configuration */
+bool dp_signal_init      ();               /* initialize signal handling (logged) */
+bool dp_fork_signal_init ();               /* initialize signal handling (logged) for fork */
+bool dp_signal_block     (int signum);     /* block specific signal */
+bool dp_signal_unblock   (int signum);     /* unblock specific signal */
 
 dp_config_val dp_config_field (const char *name);                                                 /* get config field id */
 bool          dp_config_set   (dp_config *config, dp_config_val field, char *value, bool if_dup); /* assign field value in config */

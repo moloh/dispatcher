@@ -372,6 +372,10 @@ int dp_fork_exec(dp_child *worker)
     bool status = false;
     double elapsed;
 
+    /* initialize signal processing */
+    if (!dp_fork_signal_init())
+        return EXIT_FAILURE;
+
     /* initialize logger */
     dp_logger_init(cfg.log.worker);
 
@@ -390,6 +394,10 @@ int dp_fork_exec(dp_child *worker)
                                       strlen(worker->task.description),
                                       &worker_result_size,
                                       &error);
+
+    /* entering critical section, blocking terminate signal */
+    /* NOTE: we block SIGTRERM till the end */
+    dp_signal_block(SIGTERM);
 
     /* get result timestamp */
     timestamp = time(NULL);
@@ -648,25 +656,49 @@ bool dp_signal_init()
     return true;
 }
 
-bool dp_signal_block(sigset_t *old)
+bool dp_fork_signal_init()
 {
-    sigset_t mask;
+    /* setup signals */
+    struct sigaction action;
+    sigset_t empty;
 
-    /* initialize masks */
-    sigemptyset(old);
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGCHLD);
+    sigemptyset(&empty);
 
-    /* apply block */
-    sigprocmask(SIG_BLOCK, &mask, old);
+    /* restore default handler */
+    action.sa_handler = SIG_DFL;
+    action.sa_mask = empty;
+    action.sa_flags = 0;
+    /* install signal handler */
+    sigaction(SIGTERM, &action, NULL);
+    sigaction(SIGINT, &action, NULL);
 
     return true;
 }
 
-bool dp_signal_restore(sigset_t *restore)
+bool dp_signal_block(int signum)
 {
-    /* restore mask */
-    sigprocmask(SIG_SETMASK, restore, NULL);
+    sigset_t mask;
+
+    /* specify sigset_t */
+    sigemptyset(&mask);
+    sigaddset(&mask, signum);
+
+    /* block signal */
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+
+    return true;
+}
+
+bool dp_signal_unblock(int signum)
+{
+    sigset_t mask;
+
+    /* specify sigset_t */
+    sigemptyset(&mask);
+    sigaddset(&mask, signum);
+
+    /* unblock signal */
+    sigprocmask(SIG_UNBLOCK , &mask, NULL);
 
     return true;
 }
@@ -1757,7 +1789,7 @@ void dp_status_timeout(time_t timestamp)
 
             /* terminate child */
             /* NOTE: parent handlers are used because of fork */
-            kill(child_status[i].pid, SIGKILL);
+            kill(child_status[i].pid, SIGTERM);
         }
 }
 
