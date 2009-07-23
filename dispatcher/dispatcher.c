@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
                 /* kill all child processes */
                 for (size_t i = 0; i < child_limit; ++i)
                     if (!child_status[i].null)
-                        kill(child_status[i].pid, SIGKILL);
+                        kill(child_status[i].pid, SIGTERM);
 
                 break;
             }
@@ -402,7 +402,7 @@ int dp_fork_exec(dp_child *worker)
                                       &error);
 
     /* entering critical section, blocking terminate signal */
-    /* NOTE: we block SIGTRERM till the end */
+    /* NOTE: we block SIGTERM till the end */
     dp_signal_block(SIGTERM);
 
     /* get result timestamp */
