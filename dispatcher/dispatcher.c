@@ -36,13 +36,13 @@ int main(int argc, char *argv[])
                 cfg_location = optarg;
                 break;
             case 'h':
-                printf(usage);
+                fprintf(stdout, usage);
                 return EXIT_SUCCESS;
             case 'v':
-                printf(PACKAGE_NAME", version "PACKAGE_VERSION"\n");
+                fprintf(stdout, PACKAGE_NAME", version "PACKAGE_VERSION"\n");
                 return EXIT_SUCCESS;
             case '?':
-                printf(usage);
+                fprintf(stdout, usage);
                 return EXIT_FAILURE;
         }
 
@@ -74,7 +74,12 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    printf("Dispatcher started, check syslog for details\n");
+    /* print confirmation message */
+    fprintf(stdout, "Dispatcher started, check syslog for details\n");
+
+    /* flush buffers before entering main loop */
+    fflush(stdout);
+    fflush(stderr);
 
     /* main loop */
     while (true) {
