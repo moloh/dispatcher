@@ -710,49 +710,17 @@ bool dp_signal_unblock(int signum)
 
 dp_config_val dp_config_field(const char *name)
 {
+    dp_enum *match;
+
     if (name == NULL)
         return DP_CONFIG_UNKNOWN;
 
-    if (!strcmp(name, "mysql_host"))
-        return DP_CONFIG_MYSQL_HOST;
-    if (!strcmp(name, "mysql_db"))
-        return DP_CONFIG_MYSQL_DB;
-    if (!strcmp(name, "mysql_user"))
-        return DP_CONFIG_MYSQL_USER;
-    if (!strcmp(name, "mysql_passwd"))
-        return DP_CONFIG_MYSQL_PASSWD;
-    if (!strcmp(name, "mysql_table"))
-        return DP_CONFIG_MYSQL_TABLE;
-    if (!strcmp(name, "mysql_port"))
-        return DP_CONFIG_MYSQL_PORT;
-    if (!strcmp(name, "gearman_host"))
-        return DP_CONFIG_GEARMAN_HOST;
-    if (!strcmp(name, "gearman_port"))
-        return DP_CONFIG_GEARMAN_PORT;
-    if (!strcmp(name, "task_failed_delay"))
-        return DP_CONFIG_TASK_FAILED_DELAY;
-    if (!strcmp(name, "task_timeout_delay"))
-        return DP_CONFIG_TASK_TIMEOUT_DELAY;
-    if (!strcmp(name, "task_environment"))
-        return DP_CONFIG_TASK_ENVIRONMENT;
-    if (!strcmp(name, "log_dispatcher"))
-        return DP_CONFIG_LOG_DISPATCHER;
-    if (!strcmp(name, "log_worker"))
-        return DP_CONFIG_LOG_WORKER;
-    if (!strcmp(name, "log_level"))
-        return DP_CONFIG_LOG_LEVEL;
-    if (!strcmp(name, "log_facility"))
-        return DP_CONFIG_LOG_FACILITY;
-    if (!strcmp(name, "sense_loop"))
-        return DP_CONFIG_SENSE_LOOP;
-    if (!strcmp(name, "sense_terminated"))
-        return DP_CONFIG_SENSE_TERMINATED;
-    if (!strcmp(name, "sense_paused"))
-        return DP_CONFIG_SENSE_PAUSED;
-    if (!strcmp(name, "sleep_loop"))
-        return DP_CONFIG_SLEEP_LOOP;
+    /* extract matching enum */
+    match = dp_enum_name(dp_config_value, name);
+    if (match == NULL)
+        return DP_CONFIG_UNKNOWN;
 
-    return DP_CONFIG_UNKNOWN;
+    return match->value;
 }
 
 bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_dup)
@@ -978,74 +946,6 @@ bool dp_gearman_init(gearman_client_st **client)
     return true;
 }
 
-/* TODO: maybe extend it (handle first word (hash, list) correctly, discard end lines and white spaces */
-/* simple "parser" for YAML reply from gearman */
-bool dp_gearman_get_reply(dp_reply *reply, const char *result, size_t size)
-{
-    const char *str = result, *end;
-    const char *last = result + size;
-    dp_reply_val field;
-    char *name = NULL;
-
-    /* initialize */
-    memset(reply, 0, sizeof(dp_reply));
-
-    /* import values */
-    for (end = str; end < last; ++end) {
-        if (*end == ':') {
-            /* check if we have previous data to save */
-            if (name != NULL) {
-                char *value = NULL;
-
-                /* check if value ends with end line */
-                if (end > str && *(end - 1) == '\n')
-                    value = dp_strudup(str, end - str - 1);
-                else
-                    value = dp_strudup(str, end - str);
-
-                /* import value, free if fail */
-                field = dp_gearman_reply_field(name);
-                if (!dp_gearman_reply_set(reply, field, value))
-                    free(value);
-
-                /* clear name */
-                free(name);
-                name = NULL;
-            }
-
-            /* update start position */
-            str = end;
-
-            /* find terminating ': ' */
-            if ((end = dp_strustr(++end, last - end, ": ")) == NULL) {
-                dp_logger(LOG_ERR, "Invalid Gearman reply string");
-                return false;
-            }
-
-            /* copy name part ":[^:]*:" */
-            name = dp_strudup(str, ++end - str);
-
-            /* update position */
-            str = ++end;
-        }
-
-        /* go to the end of line */
-        for (; end < last; ++end)
-            if (*end == '\n')
-                break;
-    }
-
-    if (name != NULL) {
-        char *value = dp_strudup(str, end - str);
-        field = dp_gearman_reply_field(name);
-        if (!dp_gearman_reply_set(reply, field, value))
-            free(value);
-        free(name);
-    }
-
-    return false;
-}
-
 bool dp_gearman_get_status(const char *result, size_t size)
 {
     /* find status string */
@@ -1059,124 +959,6 @@ bool dp_gearman_get_status(const char *result, size_t size)
         return false;
 
     return true;
-}
-
-/* set single "hash" value from gearman parser */
-bool dp_gearman_reply_set(dp_reply *reply, dp_reply_val field, char *value)
-{
-    switch (field) {
-    case DP_REPLY_UNKNOWN:
-        return false;
-    case DP_REPLY_BACKTRACE:
-        if (reply->backtrace) free(reply->backtrace);
-        reply->backtrace = value;
-        break;
-    case DP_REPLY_ERROR:
-        if (reply->error) free(reply->error);
-        reply->error = value;
-        break;
-    case DP_REPLY_STATUS:
-        if (reply->status) free(reply->status);
-        reply->status = value;
-        break;
-    case DP_REPLY_RESULT:
-        if (reply->result) free(reply->result);
-        reply->result = value;
-        break;
-    case DP_REPLY_MESSAGE:
-        if (reply->message) free(reply->message);
-        reply->message = value;
-        break;
-    }
-
-    return true;
-}
-
-bool dp_gearman_reply_escape(dp_reply *reply, dp_reply_val field)
-{
-    char **value = NULL, *escape;
-
-    switch (field) {
-    case DP_REPLY_UNKNOWN:
-        return false;
-    case DP_REPLY_BACKTRACE:
-        value = &reply->backtrace;
-        break;
-    case DP_REPLY_ERROR:
-        value = &reply->error;
-        break;
-    case DP_REPLY_STATUS:
-        value = &reply->status;
-        break;
-    case DP_REPLY_RESULT:
-        value = &reply->result;
-        break;
-    case DP_REPLY_MESSAGE:
-        value = &reply->message;
-        break;
-    }
-
-    /* check if there is data to escape */
-    if (*value == NULL)
-        return true;
-
-    /* escape string */
-    escape = dp_strescape(*value);
-    if (escape == NULL)
-        return false;
-
-    /* set new escaped version of string */
-    free(*value);
-    *value = escape;
-
-    return true;
-}
-
-dp_reply_val dp_gearman_reply_field(const char *name)
-{
-    if (name == NULL)
-        return DP_REPLY_UNKNOWN;
-
-    if (!strcmp(name, ":backtrace:"))
-        return DP_REPLY_BACKTRACE;
-    else if (!strcmp(name, ":error:"))
-        return DP_REPLY_ERROR;
-    else if (!strcmp(name, ":status:"))
-        return DP_REPLY_STATUS;
-    else if (!strcmp(name, ":result:"))
-        return DP_REPLY_RESULT;
-    else if (!strcmp(name, ":message:"))
-        return DP_REPLY_MESSAGE;
-    return DP_REPLY_UNKNOWN;
-}
-
-const char *dp_gearman_reply_value(dp_reply *reply, dp_reply_val field)
-{
-    switch (field) {
-    case DP_REPLY_BACKTRACE:
-        return reply->backtrace;
-    case DP_REPLY_ERROR:
-        return reply->error;
-    case DP_REPLY_STATUS:
-        return reply->status;
-    case DP_REPLY_RESULT:
-        return reply->result;
-    case DP_REPLY_MESSAGE:
-        return reply->message;
-    default:
-        return NULL;
-    }
-}
-
-void dp_gearman_reply_free(dp_reply *reply)
-{
-    if (reply != NULL) {
-        free(reply->backtrace);
-        free(reply->error);
-        free(reply->message);
-        free(reply->result);
-        free(reply->status);
-    }
 }
 
 /* basic, logged initialization of MySQL */
@@ -1296,25 +1078,20 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
         /* convert row into typed task */
         if (!strcmp(field->name, "id"))
             sscanf(row[i], "%d", &task->id);
-        else if (!strcmp(field->name, "type"))
-            task->type = row[i];
-        else if (!strcmp(field->name, "description")) {
-            task->description = row[i];
-        } else if (!strcmp(field->name, "status"))
-            task->status = row[i];
-        else if (!strcmp(field->name, "priority"))
+        else if (!strcmp(field->name, "type")) {
+            if (row[i] == NULL) task->type = NULL;
+            else task->type = dp_strdup(row[i]);
+        } else if (!strcmp(field->name, "description")) {
+            if (row[i] == NULL) task->description = NULL;
+            else task->description = dp_strdup(row[i]);
+        } else if (!strcmp(field->name, "status")) {
+            if (row[i] == NULL) task->status = NULL;
+            else task->status = dp_strdup(row[i]);
+        } else if (!strcmp(field->name, "priority"))
             sscanf(row[i], "%d", &task->priority);
         else if (!strcmp(field->name, "run_after"))
             sscanf(row[i], "%ld", &task->run_after);
     }
-
-    /* postprocess fields, allocate strings */
-    if (task->type)
-        task->type = dp_strdup(task->type);
-    if (task->description)
-        task->description = dp_strdup(task->description);
-    if (task->status)
-        task->status = dp_strdup(task->status);
 
     return true;
 }

@@ -116,25 +116,6 @@ typedef struct dp_child {
     bool null;   /* indicate empty entry */
 } dp_child;
 
-/* task reply definition structure */
-typedef struct dp_reply {
-    char *backtrace; /* backtrace field from task reply */
-    char *error;     /* error field from task reply */
-    char *status;    /* status field from task reply */
-    char *result;    /* result field from task reply */
-    char *message;   /* message field from task reply */
-} dp_reply;
-
-/* task reply field ids */
-typedef enum dp_reply_val {
-    DP_REPLY_UNKNOWN,
-    DP_REPLY_BACKTRACE,
-    DP_REPLY_ERROR,
-    DP_REPLY_STATUS,
-    DP_REPLY_RESULT,
-    DP_REPLY_MESSAGE,
-} dp_reply_val;
-
 /* configuration fields ids */
 typedef enum dp_config_val {
     DP_CONFIG_UNKNOWN,
@@ -187,6 +168,29 @@ dp_enum dp_log_level[] = {
     {NULL, 0}
 };
 
+dp_enum dp_config_value[] = {
+    {"mysql_host", DP_CONFIG_MYSQL_HOST},
+    {"mysql_db", DP_CONFIG_MYSQL_DB},
+    {"mysql_user", DP_CONFIG_MYSQL_USER},
+    {"mysql_passwd", DP_CONFIG_MYSQL_PASSWD},
+    {"mysql_table", DP_CONFIG_MYSQL_TABLE},
+    {"mysql_port", DP_CONFIG_MYSQL_PORT},
+    {"gearman_host", DP_CONFIG_GEARMAN_HOST},
+    {"gearman_port", DP_CONFIG_GEARMAN_PORT},
+    {"task_failed_delay", DP_CONFIG_TASK_FAILED_DELAY},
+    {"task_timeout_delay", DP_CONFIG_TASK_TIMEOUT_DELAY},
+    {"task_environment", DP_CONFIG_TASK_ENVIRONMENT},
+    {"log_dispatcher", DP_CONFIG_LOG_DISPATCHER},
+    {"log_worker", DP_CONFIG_LOG_WORKER},
+    {"log_level", DP_CONFIG_LOG_LEVEL},
+    {"log_facility", DP_CONFIG_LOG_FACILITY},
+    {"sense_loop", DP_CONFIG_SENSE_LOOP},
+    {"sense_terminated", DP_CONFIG_SENSE_TERMINATED},
+    {"sense_paused", DP_CONFIG_SENSE_PAUSED},
+    {"sleep_loop", DP_CONFIG_SLEEP_LOOP},
+    {NULL, 0}
+};
+
 /* global flag to indicate child state change */
 volatile sig_atomic_t child_flag = 0;
 
@@ -231,14 +235,7 @@ dp_buffer *dp_buffer_printf   (dp_buffer *buf, const char *format, ...)         
                                ATTRIBUTE_PRINTF(2,3);
 
 bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
-bool dp_gearman_get_reply    (dp_reply *reply, const char *result, size_t size); /* parse gearman reply */
 bool dp_gearman_get_status   (const char *result, size_t size);                  /* get status from gearman reply */
-
-dp_reply_val dp_gearman_reply_field  (const char *name);                                 /* get task reply field id from name */
-const char  *dp_gearman_reply_value  (dp_reply *reply, dp_reply_val field);              /* get value of reply field */
-bool         dp_gearman_reply_set    (dp_reply *reply, dp_reply_val field, char *value); /* assign field value in reply */
-bool         dp_gearman_reply_escape (dp_reply *reply, dp_reply_val field);              /* escape field value in reply */
-void         dp_gearman_reply_free   (dp_reply *reply);                                  /* free data associated with reply */
 
 bool  dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
 bool  dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
