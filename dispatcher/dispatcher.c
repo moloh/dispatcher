@@ -74,13 +74,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    /* print confirmation message */
-    fprintf(stdout, "Dispatcher started, check syslog for details\n");
-
-    /* flush buffers before entering main loop */
-    fflush(stdout);
-    fflush(stderr);
-
     /* main loop */
     while (true) {
         time_t timestamp;
@@ -94,7 +87,6 @@ int main(int argc, char *argv[])
         /* Check if we should reload configuration */
         if (reload_flag) {
             dp_logger(LOG_WARNING, "Reloading configuration...");
-            fprintf(stderr, "Reloading configuration...\n");
 
             /* reload configuration and log files (possible changes)
              * NOTE: this function automatically merges configuration and
@@ -114,13 +106,11 @@ int main(int argc, char *argv[])
              */
             if (terminate_timestamp == 0) {
                 dp_logger(LOG_WARNING, "Terminating... Waiting for children");
-                fprintf(stderr, "Terminating... Waiting for children\n");
                 terminate_timestamp = timestamp + cfg.sense.terminated;
             }
 
             if (terminate_flag >= FORCE_TERMINATE_COUNT) {
                 dp_logger(LOG_WARNING, "Forced instant termination");
-                fprintf(stderr, "Forced instant termination\n");
 
                 /* kill all child processes */
                 for (size_t i = 0; i < child_limit; ++i)
@@ -135,7 +125,6 @@ int main(int argc, char *argv[])
                 terminate_timestamp < timestamp) {
 
                 dp_logger(LOG_WARNING, "(%d/%d) Terminating...", child_counter, child_limit);
-                fprintf(stderr, "(%d/%d) Terminating...\n", child_counter, child_limit);
                 terminate_timestamp = timestamp + cfg.sense.terminated;
             }
 
@@ -144,7 +133,6 @@ int main(int argc, char *argv[])
              */
             if (child_counter <= 0) {
                 dp_logger(LOG_WARNING, "Terminated");
-                fprintf(stderr, "Terminated\n");
                 break;
             }
 
@@ -576,7 +564,8 @@ bool dp_config_init()
     if (fconfig == NULL) {
         if (initialized)
             dp_logger(LOG_ERR, "Unable to find configuration file: '%s'", config_location);
-        fprintf(stderr, "Unable to find configuration file: '%s'\n", config_location);
+        else
+            fprintf(stderr, "Unable to find configuration file: '%s'\n", config_location);
         return false;
     }
 
@@ -616,7 +605,8 @@ bool dp_config_init()
         dp_config_free(&config);
         if (initialized)
             dp_logger(LOG_ERR, "Invalid configuration file at line (%"PRIu32")", line);
-        fprintf(stderr, "Invalid configuration file at line (%"PRIu32")\n", line);
+        else
+            fprintf(stderr, "Invalid configuration file at line (%"PRIu32")\n", line);
         return false;
     }
 
