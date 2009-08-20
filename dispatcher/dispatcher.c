@@ -19,12 +19,12 @@ int main(int argc, char *argv[])
     const char *usage =
         "Usage: "PACKAGE_NAME" [OPTIONS...]\n"
         " -h\t\tPrint this help information\n"
-        " -v\t\tShow version information\n"
+        " -V\t\tShow version information\n"
         " -f <file>\tOverride configuration file location\n"
         " -n <size>\tMaximum number of children\n";
 
     /* process command line parameters */
-    while ((option = getopt(argc, argv, "n:f:hv")) != -1)
+    while ((option = getopt(argc, argv, "n:f:hV")) != -1)
         switch (option) {
             case 'n':
                 if (sscanf(optarg, "%"SCNu8, &child_limit) < 1) {
@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
             case 'h':
                 fprintf(stdout, usage);
                 return EXIT_SUCCESS;
-            case 'v':
+            case 'V':
                 fprintf(stdout, PACKAGE_NAME", version "PACKAGE_VERSION"\n");
                 return EXIT_SUCCESS;
             case '?':
