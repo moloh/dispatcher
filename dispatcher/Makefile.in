@@ -39,11 +39,14 @@ dispatcher: $(OBJECT)
 	$(CC) $(OBJECT) $(LDFLAGS_REAL) -o dispatcher
 
 clean:
-	rm -f $(OBJECT) dispatcher
+	rm -f dispatcher
+	rm -f $(OBJECT)
 	
 distclean: clean
-	rm -f config.log config.status config.h configure Makefile
-	rm -rf autom4te.cache .deps
+	rm -f config.h
+	rm -f config.status config.log 
+	rm -rf .deps
+	rm -f Makefile
 
 install:
 	$(MKDIR_P) $(DESTDIR)$(bindir)
