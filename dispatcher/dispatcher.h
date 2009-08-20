@@ -224,59 +224,80 @@ bool dp_fork_signal_init ();               /* initialize signal handling (logged
 bool dp_signal_block     (int signum);     /* block specific signal */
 bool dp_signal_unblock   (int signum);     /* unblock specific signal */
 
-dp_config_val dp_config_field (const char *name);                                                 /* get config field id */
-bool          dp_config_set   (dp_config *config, dp_config_val field, char *value, bool if_dup); /* assign field value in config */
-void          dp_config_free  (dp_config *config);                                                /* free data associated with config */
+dp_config_val dp_config_field (const char *name);          /* get config field id */
+bool          dp_config_set   (dp_config *config,
+                               dp_config_val field,
+                               char *value,
+                               bool if_dup);               /* assign field value in config */
+void          dp_config_free  (dp_config *config);         /* free data associated with config */
 
-dp_buffer *dp_buffer_new      (size_t pool);                                     /* allocate buffer with specific pool size */
-dp_buffer *dp_buffer_init     (dp_buffer *buf, size_t pool);                     /* initialize buffer with specific pool size */
-void       dp_buffer_free     (dp_buffer *buf);                                  /* free buffer */
-dp_buffer *dp_buffer_printf   (dp_buffer *buf, const char *format, ...)          /* insert format string, grow as necessary */
+dp_buffer *dp_buffer_new      (size_t pool);               /* allocate buffer with specific pool size */
+dp_buffer *dp_buffer_init     (dp_buffer *buf,
+                               size_t pool);               /* initialize buffer with specific pool size */
+void       dp_buffer_free     (dp_buffer *buf);            /* free buffer */
+dp_buffer *dp_buffer_printf   (dp_buffer *buf,
+                               const char *format, ...)    /* insert format string, grow as necessary */
                                ATTRIBUTE_PRINTF(2,3);
 
-bool dp_gearman_init         (gearman_client_st **client);                       /* initialize gearman (logged) */
-bool dp_gearman_get_status   (const char *result, size_t size);                  /* get status from gearman reply */
+bool dp_gearman_init       (gearman_client_st **client);   /* initialize gearman (logged) */
+bool dp_gearman_get_status (const char *result,
+                            size_t size);                  /* get status from gearman reply */
 
-bool  dp_mysql_init       (MYSQL **db);                              /* initialize MySQL (logged) */
-bool  dp_mysql_connect    (MYSQL *db);                               /* connect to MySQL (logged) */
-bool  dp_mysql_query      (MYSQL *db, const char *query);            /* execute MySQL query (logged), recover */
-bool  dp_mysql_get_task   (dp_task *task, MYSQL_RES *result);        /* extract MySQL stored task (logged) */
-bool  dp_mysql_get_int    (int *value, MYSQL_RES *result);           /* extract MySQL int variable (logged) */
+bool  dp_mysql_init        (MYSQL **db);                   /* initialize MySQL (logged) */
+bool  dp_mysql_connect     (MYSQL *db);                    /* connect to MySQL (logged) */
+bool  dp_mysql_query       (MYSQL *db,
+                            const char *query);            /* execute MySQL query (logged), recover connection */
+bool  dp_mysql_get_task    (dp_task *task,
+                            MYSQL_RES *result);            /* extract MySQL stored task (logged) */
+bool  dp_mysql_get_int     (int *value,
+                            MYSQL_RES *result);            /* extract MySQL int variable (logged) */
 
-void  dp_mysql_task_free  (dp_task *task);                           /* free data associated with task */
-void  dp_mysql_task_clear (dp_task *task);                           /* clear data associated with task */
+void  dp_mysql_task_free  (dp_task *task);                 /* free data associated with task */
+void  dp_mysql_task_clear (dp_task *task);                 /* clear data associated with task */
 
-char *dp_yaml_value       (const char *yaml, const char *field)              /* get field value (single-line) from string */
+char *dp_yaml_value       (const char *yaml,
+                           const char *field)              /* get field value (single-line) from string */
                            ATTRIBUTE_NONNULL(1,2);
-char *dp_yaml_value_size  (const char *yaml, size_t size, const char *field) /* get field value (single-line) from memory */
+char *dp_yaml_value_size  (const char *yaml,
+                           size_t size,
+                           const char *field)              /* get field value (single-line) from memory */
                            ATTRIBUTE_NONNULL(3);
 
-void  dp_logger_init   (const char *ident);                                  /* initialize logging capabilities */
-void  dp_logger        (int priority, const char *message, ...)              /* log message with specific priority */
+void  dp_logger_init   (const char *ident);                /* initialize logging capabilities */
+void  dp_logger        (int priority,
+                        const char *message, ...)          /* log message with specific priority */
                         ATTRIBUTE_PRINTF(2,3);
 
-dp_enum *dp_enum_name (dp_enum *self, const char *name);                     /* extract specific enum by name */
-dp_enum *dp_enum_value(dp_enum *self, int value);                            /* extract specific enum by value */
+dp_enum *dp_enum_name (dp_enum *self,
+                       const char *name);                  /* extract specific enum by name */
+dp_enum *dp_enum_value(dp_enum *self,
+                       int value);                         /* extract specific enum by value */
 
-char *dp_strdup        (const char *str);                                    /* dup string helper */
-char *dp_strudup       (const char *str, size_t length);                     /* sized dup string helper */
-char *dp_struchr       (const char *str, size_t length, char character);     /* sized strchr string helper */
-char *dp_strustr       (const char *str, size_t length, const char *locate); /* sized strstr string helper */
-char *dp_strcat        (const char *str, ...)                                /* concatenate string helper */
+char *dp_strdup        (const char *str);                  /* dup string helper */
+char *dp_strudup       (const char *str,
+                        size_t length);                    /* sized dup string helper */
+char *dp_struchr       (const char *str,
+                        size_t length,
+                        char character);                   /* sized strchr string helper */
+char *dp_strustr       (const char *str,
+                        size_t length,
+                        const char *locate);               /* sized strstr string helper */
+char *dp_strcat        (const char *str, ...)              /* concatenate string helper */
                         ATTRIBUTE_SENTINEL;
-char *dp_strescape     (const char *str);                                    /* escape string helper */
-char *dp_struescape    (const char *str, size_t length);                     /* sized escape string helper */
+char *dp_strescape     (const char *str);                  /* escape string helper */
+char *dp_struescape    (const char *str,
+                        size_t length);                    /* sized escape string helper */
 
-void  dp_sigchld       (int signal);                                         /* SIGCHLD handler */
-void  dp_sighup        (int signal);                                         /* SIGHUP handler */
-void  dp_sigtermint    (int signal);                                         /* SIGTERM handler */
-void  dp_sigusr12      (int signal);                                         /* SIGUSR12 handler */
+void  dp_sigchld       (int signal);                       /* SIGCHLD handler */
+void  dp_sighup        (int signal);                       /* SIGHUP handler */
+void  dp_sigtermint    (int signal);                       /* SIGTERM handler */
+void  dp_sigusr12      (int signal);                       /* SIGUSR12 handler */
 
-bool  dp_status_init   ();                                                   /* initialize child_status table */
-void  dp_status_free   ();                                                   /* free data associated with child_status table */
-void  dp_status_update ();                                                   /* process child_status table */
-void  dp_status_timeout(time_t timestamp);                                   /* process child_status table timeouts */
+bool  dp_status_init   ();                                 /* initialize child_status table */
+void  dp_status_free   ();                                 /* free data associated with child_status table */
+void  dp_status_update ();                                 /* process child_status table */
+void  dp_status_timeout(time_t timestamp);                 /* process child_status table timeouts */
 
-dp_child *dp_child_null ();           /* find first null entry in child_status array */
-dp_child *dp_child_pid  (pid_t pid);  /* find child with pid in child_status array */
+dp_child *dp_child_null ();                                /* find first null entry in child_status array */
+dp_child *dp_child_pid  (pid_t pid);                       /* find child with pid in child_status array */
 
