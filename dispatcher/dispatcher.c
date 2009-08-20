@@ -431,17 +431,6 @@ int dp_fork_exec(dp_child *worker)
         dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
                   worker->task.id, error);
 
-        /* update task to describe error */
-        sql = "UPDATE %s "
-              "SET status = 'failed', result = '%s' "
-              "WHERE id = %d";
-        dp_buffer_printf(query, sql,
-                         cfg.mysql.table,
-                         RESULT_ERROR_GEARMAN,
-                         worker->task.id);
-        if (!dp_mysql_query(db, query->str))
-            return EXIT_FAILURE;
-
         /* escape work details */
         char *type = dp_strescape(worker->task.type);
         char *description = dp_strescape(worker->task.description);
@@ -458,6 +447,21 @@ int dp_fork_exec(dp_child *worker)
                          worker->task.priority, run_after);
         if (!dp_mysql_query(db, query->str))
             return EXIT_FAILURE;
+
+        /* update task to describe error */
+        sql = "UPDATE %s "
+              "SET status = 'failed', result = '%s' "
+              "WHERE id = %d";
+        dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
+                         RESULT_ERROR_GEARMAN,
+                         worker->task.id);
+        if (!dp_mysql_query(db, query->str))
+            return EXIT_FAILURE;
+
+        /* free temporary buffers */
+        free(description);
+        free(type);
 
         return error;
     }
@@ -498,18 +502,6 @@ int dp_fork_exec(dp_child *worker)
         dp_logger(LOG_ERR, "Worker job (%d) FAILED",
                   worker->task.id);
 
-        /* update status of the task */
-        sql = "UPDATE %s "
-              "SET status = 'failed', result = '%s', "
-                  "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-              "WHERE id = %d";
-        dp_buffer_printf(query, sql,
-                         cfg.mysql.table,
-                         value, timestamp, elapsed,
-                         worker->task.id);
-        if (!dp_mysql_query(db, query->str))
-            return EXIT_FAILURE;
-
         /* escape work details */
         char *type = dp_strescape(worker->task.type);
         char *description = dp_strescape(worker->task.description);
@@ -525,6 +517,18 @@ int dp_fork_exec(dp_child *worker)
                          cfg.mysql.table,
                          type, description,
                          worker->task.priority, run_after);
+        if (!dp_mysql_query(db, query->str))
+            return EXIT_FAILURE;
+
+        /* update status of the task */
+        sql = "UPDATE %s "
+              "SET status = 'failed', result = '%s', "
+                  "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+              "WHERE id = %d";
+        dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
+                         value, timestamp, elapsed,
+                         worker->task.id);
         if (!dp_mysql_query(db, query->str))
             return EXIT_FAILURE;
 
