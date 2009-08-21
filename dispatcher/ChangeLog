@@ -1,6 +1,7 @@
 2009-08-?? dispatcher 0.9.98
 
 * make dispatcher silent on terminal, only print unrecoverable startup errors
+* fix segfault on error reply from gearman
 
 2009-07-29 dispatcher 0.9.97.2
 
