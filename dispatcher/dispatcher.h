@@ -17,11 +17,12 @@
 #include <syslog.h>             /* system log */
 #include <mysql/mysql.h>        /* mysql */
 #include <mysql/errmsg.h>
+#include <mysql/mysqld_error.h> /* mysql errno's */
 #include <libgearman/gearman.h> /* gearman */
 
 /* check macros */
 #ifdef __GNUC__
-#define ATTRIBUTE_PRINTF(A1,A2) __attribute__ ((format  (printf,A1,A2)))
+#define ATTRIBUTE_PRINTF(A1,A2) __attribute__ ((format (printf,A1,A2)))
 #define ATTRIBUTE_SENTINEL      __attribute__ ((sentinel))
 #define ATTRIBUTE_NONNULL(...)  __attribute__ ((nonnull (__VA_ARGS__)))
 #else
@@ -34,6 +35,9 @@
 #define BUFFER_QUERY          8192  /* initial and minimal size of query buffer */
 #define BUFFER_SIZE_MAX       1024  /* maximal length of internal buffer */
 #define FORCE_TERMINATE_COUNT 3     /* number of terminate signals that force quit */
+
+#define TIMESPEC_0_1_SEC      {0, 100000000L}  /* 0.1 sec as struct timespec */
+#define NSEC_IN_SEC           1000000000L      /* number of nsec in 1 sec */
 
 /* internal errors for MySQL results */
 /* NOTE: proper escaping for MySQL */
@@ -246,7 +250,9 @@ bool dp_gearman_get_status (const char *result,
 bool  dp_mysql_init        (MYSQL **db);                   /* initialize MySQL (logged) */
 bool  dp_mysql_connect     (MYSQL *db);                    /* connect to MySQL (logged) */
 bool  dp_mysql_query       (MYSQL *db,
-                            const char *query);            /* execute MySQL query (logged), recover connection */
+                            const char *query,
+                            bool if_retry);                /* execute MySQL query (logged), recover connection and retry if possible */
+
 bool  dp_mysql_get_task    (dp_task *task,
                             MYSQL_RES *result);            /* extract MySQL stored task (logged) */
 bool  dp_mysql_get_int     (int *value,
@@ -287,6 +293,12 @@ char *dp_strcat        (const char *str, ...)              /* concatenate string
 char *dp_strescape     (const char *str);                  /* escape string helper */
 char *dp_struescape    (const char *str,
                         size_t length);                    /* sized escape string helper */
+
+void  dp_timespec_mul     (struct timespec *self,
+                           double multiplier);             /* multiply timespec be multiplier */
+bool  dp_timespec_more    (struct timespec *self,
+                           double value);                  /* check if timespec is more that value in sec */
+double dp_timespec_double (struct timespec *self);         /* return floating point representation of timespec in secs */
 
 void  dp_sigchld       (int signal);                       /* SIGCHLD handler */
 void  dp_sighup        (int signal);                       /* SIGHUP handler */

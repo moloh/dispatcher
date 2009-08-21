@@ -208,7 +208,7 @@ int main(int argc, char *argv[])
                 break;
 
             /* reset counter */
-            if (!dp_mysql_query(db, "SET @id := NULL"))
+            if (!dp_mysql_query(db, "SET @id := NULL", false))
                 break;
 
             /* setup environment if needed */
@@ -232,7 +232,7 @@ int main(int argc, char *argv[])
                              timestamp + cfg.task.timeout_delay,
                              cfg.mysql.table,
                              timestamp, buffer);
-            if (!dp_mysql_query(db, query->str))
+            if (!dp_mysql_query(db, query->str, false))
                 break;
 
             /* this should always be NULL */
@@ -240,7 +240,7 @@ int main(int argc, char *argv[])
             mysql_free_result(result);
 
             /* extract our reply */
-            dp_mysql_query(db, "SELECT @id");
+            dp_mysql_query(db, "SELECT @id", false);
             result = mysql_store_result(db);
             dp_mysql_get_int(&id, result);
             mysql_free_result(result);
@@ -255,15 +255,15 @@ int main(int argc, char *argv[])
             sql = "SELECT * FROM %s WHERE id = %d";
             dp_buffer_printf(query, sql,
                              cfg.mysql.table, id);
-            if (!dp_mysql_query(db, query->str))
-                break;
+            if (dp_mysql_query(db, query->str, false)) {
+                result = mysql_store_result(db);
+                is_job = dp_mysql_get_task(&task, result);
+                mysql_free_result(result);
+            } else
+                is_job = false;
 
-            result = mysql_store_result(db);
-            if (!dp_mysql_get_task(&task, result))
+            if (!is_job)
                 dp_logger(LOG_ERR, "Failed to get job (%d) details!", id);
-            else
-                is_job = true;
-            mysql_free_result(result);
 
         /* END fake loop for query "exceptions" */
         } while (false);
@@ -273,7 +273,7 @@ int main(int argc, char *argv[])
             dp_child *worker;
 
             /* check if we have free spots
-             * NOTE: currently is there is job we get here only if there is
+             * NOTE: currently if there is job we get here only if there is
              * free spot in queue, but check of queue size anyway
              */
             if (!is_job || child_counter >= child_limit)
@@ -290,7 +290,7 @@ int main(int argc, char *argv[])
                 dp_buffer_printf(query, sql,
                                  cfg.mysql.table,
                                  worker->task.id);
-                dp_mysql_query(db, query->str);
+                dp_mysql_query(db, query->str, false);
 
                 /* stop processing */
                 break;
@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
                 dp_buffer_printf(query, sql,
                                  cfg.mysql.table,
                                  worker->task.id);
-                dp_mysql_query(db, query->str);
+                dp_mysql_query(db, query->str, false);
 
             /* fork successful */
             } else {
@@ -434,7 +434,7 @@ int dp_fork_exec(dp_child *worker)
                          cfg.mysql.table,
                          type, description,
                          worker->task.priority, run_after);
-        if (!dp_mysql_query(db, query->str))
+        if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
 
         /* update task to describe error */
@@ -445,7 +445,7 @@ int dp_fork_exec(dp_child *worker)
                          cfg.mysql.table,
                          RESULT_ERROR_GEARMAN,
                          worker->task.id);
-        if (!dp_mysql_query(db, query->str))
+        if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
 
         /* free temporary buffers */
@@ -482,7 +482,7 @@ int dp_fork_exec(dp_child *worker)
                          cfg.mysql.table,
                          timestamp, elapsed,
                          worker->task.id);
-        if (!dp_mysql_query(db, query->str))
+        if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
     } else {
 
@@ -506,7 +506,7 @@ int dp_fork_exec(dp_child *worker)
                          cfg.mysql.table,
                          type, description,
                          worker->task.priority, run_after);
-        if (!dp_mysql_query(db, query->str))
+        if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
 
         /* update status of the task */
@@ -518,7 +518,7 @@ int dp_fork_exec(dp_child *worker)
                          cfg.mysql.table,
                          value, timestamp, elapsed,
                          worker->task.id);
-        if (!dp_mysql_query(db, query->str))
+        if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
 
         /* free temporary buffers */
@@ -670,12 +670,23 @@ bool dp_fork_signal_init()
 
     sigemptyset(&empty);
 
-    /* restore default handler */
+    /* set default handler */
     action.sa_handler = SIG_DFL;
     action.sa_mask = empty;
     action.sa_flags = 0;
-    /* install signal handler */
+    /* install default signal handlers */
+    sigaction(SIGCHLD, &action, NULL);
+    sigaction(SIGHUP, &action, NULL);
     sigaction(SIGTERM, &action, NULL);
+    sigaction(SIGUSR1, &action, NULL);
+    sigaction(SIGUSR2, &action, NULL);
+
+    /* set ignore handler */
+    action.sa_handler = SIG_IGN;
+    action.sa_mask = empty;
+    action.sa_flags = 0;
+    /* ignore following signals */
+    sigaction(SIGINT, &action, NULL);
 
     return true;
 }
@@ -994,8 +1005,10 @@ bool dp_mysql_connect(MYSQL *db)
 }
 
 /* logged MySQL query wrapper with basic recovering */
-bool dp_mysql_query(MYSQL *db, const char *query)
+bool dp_mysql_query(MYSQL *db, const char *query, bool if_retry)
 {
+    struct timespec timeout = TIMESPEC_0_1_SEC;
+    bool if_reconnected = false, is_recoverable;
     MYSQL_RES *result;
 
     /* check if we have query at all */
@@ -1004,43 +1017,83 @@ bool dp_mysql_query(MYSQL *db, const char *query)
         return false;
     }
 
+retry:
+
+    /* mark possible error as not recoverable */
+    is_recoverable = false;
+
     /* execute query */
     if (mysql_query(db, query)) {
         switch (mysql_errno(db)) {
-            case CR_COMMANDS_OUT_OF_SYNC:  /* try to clear error */
-                dp_logger(LOG_ERR, "MySQL query error (%d), clearing: %s",
-                          mysql_errno(db),
-                          mysql_error(db));
+        case CR_COMMANDS_OUT_OF_SYNC:  /* try to clear error */
+            dp_logger(LOG_ERR, "MySQL error (%d), clearing: %s",
+                      mysql_errno(db),
+                      mysql_error(db));
 
-                result = mysql_store_result(db);
-                mysql_free_result(result);
+            result = mysql_store_result(db);
+            mysql_free_result(result);
+            return false;
+
+        case CR_SERVER_GONE_ERROR:     /* try to reconnect and rerun query */
+        case CR_SERVER_LOST:
+            /* check if we already reconnected */
+            if (if_reconnected)
                 return false;
-            case CR_SERVER_GONE_ERROR:     /* try to reconnect and rerun query */
-            case CR_SERVER_LOST:
-                dp_logger(LOG_ERR, "MySQL query error (%d), recovering: %s",
-                          mysql_errno(db),
-                          mysql_error(db));
 
-                /* reconnect to server */
-                if (!dp_mysql_connect(db))
-                    return false;
+            dp_logger(LOG_ERR, "MySQL error (%d), reconnecting: %s",
+                      mysql_errno(db),
+                      mysql_error(db));
 
-                /* execute query, recover */
-                if (mysql_query(db, query)) {
-                    dp_logger(LOG_ERR, "MySQL query recovery error (%d): %s",
-                              mysql_errno(db),
-                              mysql_error(db));
-
-                    /* clear state anyway */
-                    result = mysql_store_result(db);
-                    mysql_free_result(result);
-                    return false;
-                }
-
-                return true;
-            default:
+            /* reconnect to server */
+            if (!dp_mysql_connect(db))
                 return false;
+
+            /* retry */
+            if_reconnected = true;
+            goto retry;
+
+        case CR_UNKNOWN_ERROR:
+            break;
+
+        case ER_LOCK_WAIT_TIMEOUT:     /* retry on lock timeout */
+            if (if_retry)
+                is_recoverable = true;
+            break;
+
+        case ER_LOCK_DEADLOCK:         /* exponential backoff on deadlock */
+            if (!if_retry)             /* NOTE: we force our query to execute! */
+                break;
+
+            /* check if we already sleep too much */
+            if (dp_timespec_more(&timeout, 2.0))
+                break;
+
+            /* sleep, this can be broken by signal */
+            dp_timespec_mul(&timeout, 1.2);
+            nanosleep(&timeout, NULL);
+
+            is_recoverable = true;
+            break;
+
+        default:
+            break;
         }
+
+        /* log error condition */
+        if (is_recoverable)
+            dp_logger(LOG_WARNING, "MySQL error (%d), retrying: %s",
+                      mysql_errno(db),
+                      mysql_error(db));
+        else
+            dp_logger(LOG_ERR, "MySQL error (%d): %s",
+                      mysql_errno(db),
+                      mysql_error(db));
+
+        /* retry if possible */
+        if (is_recoverable)
+            goto retry;
+
+        return false;
     }
 
     return true;
@@ -1352,6 +1405,45 @@ char *dp_struescape(const char *str, size_t length)
     *esc = '\0';
 
     return escape;
+}
+
+void dp_timespec_mul(struct timespec *self, double multiplier)
+{
+    self->tv_sec *= multiplier;
+    self->tv_nsec *= multiplier;
+
+    /* chendle nsec overflow */
+    if (self->tv_nsec > NSEC_IN_SEC) {
+        time_t secs = self->tv_nsec / NSEC_IN_SEC;
+
+        self->tv_sec += secs;
+        self->tv_nsec -= (long)secs * NSEC_IN_SEC;
+    }
+}
+
+bool dp_timespec_more(struct timespec *self, double value)
+{
+    time_t sec;
+    long nsec;
+
+    /* check sec */
+    sec = (time_t)value;
+    if (self->tv_sec > sec)
+        return true;
+
+    /* check nsec if needed */
+    if (self->tv_sec == sec) {
+        nsec = (long)((value - (double)sec) * NSEC_IN_SEC);
+        if (self->tv_nsec > nsec)
+            return true;
+    }
+
+    return false;
+}
+
+double dp_timespec_double(struct timespec *self)
+{
+    return (double)self->tv_sec + (double)self->tv_nsec / NSEC_IN_SEC;
 }
 
 void dp_logger_init(const char *ident)
