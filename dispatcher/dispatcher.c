@@ -12,7 +12,6 @@ int main(int argc, char *argv[])
     time_t sense_timestamp = 0;            /* timestamp for sense display */
     time_t terminate_timestamp = 0;        /* timestamp for termination sense display */
     time_t pause_timestamp = 0;            /* timestamp for pause sense display */
-    const char *sql;                       /* static query buffer */
     MYSQL *db = NULL;
     int option;
 
@@ -220,14 +219,14 @@ int main(int argc, char *argv[])
                 strcpy(buffer, "");
 
             /* update task to 'working' state and extract its id */
-            sql = "UPDATE %s "
-                  "SET status = 'working', run_after = '%ld' "
-                  "WHERE id = "
-                      "(SELECT * FROM (SELECT id FROM %s "
-                      "WHERE status IN ('new','working') AND run_after < %ld %s"
-                      "ORDER BY priority DESC LIMIT 1) AS innerquery) "
-                  "AND @id := id";
-            dp_buffer_printf(query, sql,
+            dp_buffer_printf(query,
+                             "UPDATE %s "
+                             "SET status = 'working', run_after = '%ld' "
+                             "WHERE id = "
+                                 "(SELECT * FROM (SELECT id FROM %s "
+                                 "WHERE status IN ('new','working') AND run_after < %ld %s"
+                                 "ORDER BY priority DESC LIMIT 1) AS innerquery) "
+                             "AND @id := id",
                              cfg.mysql.table,
                              timestamp + cfg.task.timeout_delay,
                              cfg.mysql.table,
@@ -252,8 +251,8 @@ int main(int argc, char *argv[])
                 break;
 
             /* extract task */
-            sql = "SELECT * FROM %s WHERE id = %d";
-            dp_buffer_printf(query, sql,
+            dp_buffer_printf(query,
+                             "SELECT * FROM %s WHERE id = %d",
                              cfg.mysql.table, id);
             if (dp_mysql_query(db, query->str, false)) {
                 result = mysql_store_result(db);
@@ -286,8 +285,8 @@ int main(int argc, char *argv[])
                           task.id);
 
                 /* insert task back to queue */
-                sql = "UPDATE %s SET status = 'new' WHERE id = %d";
-                dp_buffer_printf(query, sql,
+                dp_buffer_printf(query,
+                                 "UPDATE %s SET status = 'new' WHERE id = %d",
                                  cfg.mysql.table,
                                  worker->task.id);
                 dp_mysql_query(db, query->str, false);
@@ -315,8 +314,8 @@ int main(int argc, char *argv[])
                 dp_logger(LOG_ERR, "Fork failed!");
 
                 /* insert task back to queue */
-                sql = "UPDATE %s SET status = 'new' WHERE id = %d";
-                dp_buffer_printf(query, sql,
+                dp_buffer_printf(query,
+                                 "UPDATE %s SET status = 'new' WHERE id = %d",
                                  cfg.mysql.table,
                                  worker->task.id);
                 dp_mysql_query(db, query->str, false);
@@ -363,7 +362,6 @@ int dp_fork_exec(dp_child *worker)
     size_t worker_result_size;          /* gearman worker result size */
 
     time_t timestamp;                   /* fork execution timestamp */
-    const char *sql;                    /* static query buffer */
     MYSQL *db = NULL;
 
     /* data extracted from worker result */
@@ -427,10 +425,10 @@ int dp_fork_exec(dp_child *worker)
         time_t run_after = timestamp + cfg.task.failed_delay;
 
         /* insert task one more time */
-        sql = "INSERT INTO %s "
-              "(type, description, status, priority, run_after) "
-              "VALUES ('%s', '%s', 'new', '%d', '%ld')";
-        dp_buffer_printf(query, sql,
+        dp_buffer_printf(query,
+                         "INSERT INTO %s "
+                         "(type, description, status, priority, run_after) "
+                         "VALUES ('%s', '%s', 'new', '%d', '%ld')",
                          cfg.mysql.table,
                          type, description,
                          worker->task.priority, run_after);
@@ -438,10 +436,10 @@ int dp_fork_exec(dp_child *worker)
             return EXIT_FAILURE;
 
         /* update task to describe error */
-        sql = "UPDATE %s "
-              "SET status = 'failed', result = '%s' "
-              "WHERE id = %d";
-        dp_buffer_printf(query, sql,
+        dp_buffer_printf(query,
+                         "UPDATE %s "
+                         "SET status = 'failed', result = '%s' "
+                         "WHERE id = %d",
                          cfg.mysql.table,
                          RESULT_ERROR_GEARMAN,
                          worker->task.id);
@@ -474,11 +472,11 @@ int dp_fork_exec(dp_child *worker)
     if (status) {
 
         /* update task entry to indicate that it is done */
-        sql = "UPDATE %s "
-              "SET status = 'done', result = '', "
-                  "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-              "WHERE id = %d";
-        dp_buffer_printf(query, sql,
+        dp_buffer_printf(query,
+                         "UPDATE %s "
+                         "SET status = 'done', result = '', "
+                             "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+                         "WHERE id = %d",
                          cfg.mysql.table,
                          timestamp, elapsed,
                          worker->task.id);
@@ -499,10 +497,10 @@ int dp_fork_exec(dp_child *worker)
         time_t run_after = timestamp + cfg.task.failed_delay;
 
         /* insert task to rerun */
-        sql = "INSERT INTO %s "
-              "(type, description, status, priority, run_after) "
-              "VALUES ('%s', '%s', 'new', '%d', '%ld')";
-        dp_buffer_printf(query, sql,
+        dp_buffer_printf(query,
+                         "INSERT INTO %s "
+                         "(type, description, status, priority, run_after) "
+                         "VALUES ('%s', '%s', 'new', '%d', '%ld')",
                          cfg.mysql.table,
                          type, description,
                          worker->task.priority, run_after);
@@ -510,11 +508,11 @@ int dp_fork_exec(dp_child *worker)
             return EXIT_FAILURE;
 
         /* update status of the task */
-        sql = "UPDATE %s "
-              "SET status = 'failed', result = '%s', "
-                  "result_timestamp = '%ld', time_elapsed = '%.5lf' "
-              "WHERE id = %d";
-        dp_buffer_printf(query, sql,
+        dp_buffer_printf(query,
+                         "UPDATE %s "
+                         "SET status = 'failed', result = '%s', "
+                             "result_timestamp = '%ld', time_elapsed = '%.5lf' "
+                         "WHERE id = %d",
                          cfg.mysql.table,
                          value, timestamp, elapsed,
                          worker->task.id);
