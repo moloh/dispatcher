@@ -431,6 +431,7 @@ int dp_fork_exec(dp_child *worker)
               "(type, description, status, priority, run_after) "
               "VALUES ('%s', '%s', 'new', '%d', '%ld')";
         dp_buffer_printf(query, sql,
+                         cfg.mysql.table,
                          type, description,
                          worker->task.priority, run_after);
         if (!dp_mysql_query(db, query->str))
