@@ -440,7 +440,7 @@ int dp_fork_exec(dp_child *worker)
         /* update task to describe error */
         dp_buffer_printf(query,
                          "UPDATE %s "
-                         "SET status = 'failed', result = '%s' "
+                         "SET status = 'failed', result = '%s', "
                              "result_timestamp = '%ld' "
                          "WHERE id = %d",
                          cfg.mysql.table,
