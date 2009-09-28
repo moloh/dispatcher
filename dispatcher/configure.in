@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(dispatcher, [0.9.98], michal@nexopia.com)
+AC_INIT(dispatcher, [0.9.98.1], michal@nexopia.com)
 AC_CONFIG_SRCDIR([dispatcher.c])
 AC_CONFIG_HEADER([config.h])
 AC_PREFIX_DEFAULT(/nexopia)

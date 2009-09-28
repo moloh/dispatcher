@@ -1,4 +1,8 @@
-2009-08-?? dispatcher 0.9.98
+2009-09-28 dispatcher 0.9.98.1
+
+* improve logging when gearman fails to execute jobs
+
+2009-08-22 dispatcher 0.9.98
 
 * make dispatcher silent on terminal, only print unrecoverable startup errors
 * fix segfault on error reply from gearman
