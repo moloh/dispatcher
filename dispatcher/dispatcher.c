@@ -439,9 +439,11 @@ int dp_fork_exec(dp_child *worker)
         dp_buffer_printf(query,
                          "UPDATE %s "
                          "SET status = 'failed', result = '%s' "
+                             "result_timestamp = '%ld' "
                          "WHERE id = %d",
                          cfg.mysql.table,
                          RESULT_ERROR_GEARMAN,
+                         timestamp,
                          worker->task.id);
         if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
