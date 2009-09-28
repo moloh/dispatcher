@@ -414,8 +414,10 @@ int dp_fork_exec(dp_child *worker)
 
     /* error executing work, retry */
     if (error) {
-        dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d)",
-                  worker->task.id, error);
+        dp_logger(LOG_ERR, "Worker job (%d) FAILED (%d): %s",
+                  worker->task.id,
+                  gearman_client_errno(client),
+                  gearman_client_error(client));
 
         /* escape work details */
         char *type = dp_strescape(worker->task.type);
