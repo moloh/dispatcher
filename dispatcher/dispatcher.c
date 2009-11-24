@@ -98,6 +98,28 @@ int main(int argc, char *argv[])
             reload_flag = false;
         }
 
+        /* Check if we should print status */
+        if (status_flag) {
+            dp_logger(LOG_NOTICE, "Logging status...");
+
+            for (size_t i = 0; i < child_limit; ++i) {
+                if (child_status[i].null)
+                    continue;
+
+                /* print status of the single worker */
+                /* id, method, priority, stamp to timeout */
+                dp_logger(LOG_NOTICE, "%3zu: %-10d %-30.30s %-4d %-6.0lf",
+                          i,
+                          child_status[i].task.id,
+                          child_status[i].task.type,
+                          child_status[i].task.priority,
+                          difftime(timestamp,
+                                   child_status[i].task.run_after));
+            }
+
+            status_flag = false;
+        }
+
         /* check if we should terminate */
         if (terminate_flag) {
             /* if we start countdown then we should print some information
@@ -625,9 +647,8 @@ bool dp_signal_init()
 
     /* queue multiple SIGCHLD signals, used to prevent zombie children */
     sigaddset(&block, SIGCHLD);
-    /* queue multiple SIGUSR12 signals, used to pause and resume dispatching */
+    /* queue multiple SIGUSR1 signals, used to pause and resume dispatching */
     sigaddset(&block, SIGUSR1);
-    sigaddset(&block, SIGUSR2);
 
     /* setup action for SIGCHLD */
     action.sa_handler = dp_sigchld;
@@ -651,12 +672,18 @@ bool dp_signal_init()
     sigaction(SIGTERM, &action, NULL);
     sigaction(SIGINT, &action, NULL);
 
-    /* setup action for SIGUSR1 and SIGUSR2 */
-    action.sa_handler = dp_sigusr12;
+    /* setup action for SIGUSR1 */
+    action.sa_handler = dp_sigusr1;
     action.sa_mask = block;
     action.sa_flags = 0;
     /* install signal handler */
     sigaction(SIGUSR1, &action, NULL);
+
+    /* setup action for SIGUSR2 */
+    action.sa_handler = dp_sigusr2;
+    action.sa_mask = no_block;
+    action.sa_flags = 0;
+    /* install signal handler */
     sigaction(SIGUSR2, &action, NULL);
 
     return true;
@@ -1508,7 +1535,7 @@ void dp_sigtermint(int signal)
     terminate_flag += 1;
 }
 
-void dp_sigusr12(int signal)
+void dp_sigusr1(int signal)
 {
     /* remove unused parameter warning */
     (void)signal;
@@ -1518,6 +1545,14 @@ void dp_sigusr12(int signal)
         pause_flag = 0;
     else
         pause_flag = 1;
+}
+
+void dp_sigusr2(int signal)
+{
+    /* remove unused parameter warning */
+    (void)signal;
+
+    status_flag = 1;
 }
 
 bool dp_status_init()

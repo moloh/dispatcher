@@ -207,8 +207,11 @@ volatile sig_atomic_t terminate_flag = 0;
 /* global flag to reload configuration */
 volatile sig_atomic_t reload_flag = 0;
 
+/* global flag to output status */
+volatile sig_atomic_t status_flag = 0;
+
 /* global status variables */
-int       child_counter = 0;        /* current number of running children */
+int16_t   child_counter = 0;        /* current number of running children */
 dp_child *child_status = NULL;      /* array of child status */
 uint8_t   child_limit = 50;         /* maximum number of children */
 
@@ -303,7 +306,8 @@ double dp_timespec_double (struct timespec *self);         /* return floating po
 void  dp_sigchld       (int signal);                       /* SIGCHLD handler */
 void  dp_sighup        (int signal);                       /* SIGHUP handler */
 void  dp_sigtermint    (int signal);                       /* SIGTERM handler */
-void  dp_sigusr12      (int signal);                       /* SIGUSR12 handler */
+void  dp_sigusr1       (int signal);                       /* SIGUSR1 handler */
+void  dp_sigusr2       (int signal);                       /* SIGUSR2 hanlder */
 
 bool  dp_status_init   ();                                 /* initialize child_status table */
 void  dp_status_free   ();                                 /* free data associated with child_status table */
