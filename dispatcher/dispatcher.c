@@ -220,7 +220,6 @@ int main(int argc, char *argv[])
         /* START fake loop for query "exceptions" */
         do {
             MYSQL_RES *result;
-            int id = -1;
 
             /* make double sure that there is space in queue for task,
              * we don't want to make it 'working' and do nothing later
@@ -228,63 +227,56 @@ int main(int argc, char *argv[])
             if (child_counter >= child_limit)
                 break;
 
-            /* reset counter */
-            if (!dp_mysql_query(db, "SET @id := NULL", false))
-                break;
+            /* get pending task, check specific environment */
+            if (cfg.task.environment != NULL) {
+                dp_buffer_printf(query,
+                                 "SELECT * FROM %s "
+                                 "WHERE status IN ('new','working') AND run_after < %ld "
+                                     "AND type LIKE '%%:%s:%%' "
+                                 "ORDER BY priority DESC LIMIT 1",
+                                 cfg.mysql.table,
+                                 timestamp,
+                                 cfg.task.environment);
+            } else {
+                dp_buffer_printf(query,
+                                 "SELECT * FROM %s "
+                                 "WHERE status IN ('new','working') AND run_after < %ld "
+                                 "ORDER BY priority DESC LIMIT 1",
+                                 cfg.mysql.table,
+                                 timestamp);
+            }
 
-            /* setup environment if needed */
-            if (cfg.task.environment != NULL)
-                snprintf(buffer, BUFFER_SIZE_MAX,
-                         "AND type LIKE '%%:%s:%%' ",
-                         cfg.task.environment);
-            else
-                strcpy(buffer, "");
-
-            /* update task to 'working' state and extract its id */
-            dp_buffer_printf(query,
-                             "UPDATE %s "
-                             "SET status = 'working', run_after = '%ld' "
-                             "WHERE id = "
-                                 "(SELECT * FROM (SELECT id FROM %s "
-                                 "WHERE status IN ('new','working') AND run_after < %ld %s"
-                                 "ORDER BY priority DESC LIMIT 1) AS innerquery) "
-                             "AND @id := id",
-                             cfg.mysql.table,
-                             timestamp + cfg.task.timeout_delay,
-                             cfg.mysql.table,
-                             timestamp, buffer);
+            /* execute query */
             if (!dp_mysql_query(db, query->str, false))
                 break;
 
-            /* this should always be NULL */
+            /* extract task */
             result = mysql_store_result(db);
+            is_job = dp_mysql_get_task(&task, result);
             mysql_free_result(result);
 
-            /* extract our reply */
-            dp_mysql_query(db, "SELECT @id", false);
-            result = mysql_store_result(db);
-            dp_mysql_get_int(&id, result);
-            mysql_free_result(result);
-
-            /* check if we get valid reply
-             * NOTE: we hit this when there is nothing to do
-             */
-            if (id < 0)
+            /* check if we have job */
+            if (!is_job)
                 break;
 
-            /* extract task */
+            /* try to update status */
             dp_buffer_printf(query,
-                             "SELECT * FROM %s WHERE id = %d",
-                             cfg.mysql.table, id);
-            if (dp_mysql_query(db, query->str, false)) {
-                result = mysql_store_result(db);
-                is_job = dp_mysql_get_task(&task, result);
-                mysql_free_result(result);
-            } else
-                is_job = false;
+                             "UPDATE %s "
+                             "SET status = 'working', run_after = '%ld' "
+                             "WHERE id = %d",
+                             cfg.mysql.table,
+                             timestamp + cfg.task.timeout_delay,
+                             task.id);
+            if (!dp_mysql_query(db, query->str, false))
+                continue;
 
-            if (!is_job)
-                dp_logger(LOG_ERR, "Failed to get job (%d) details!", id);
+            result = mysql_store_result(db);
+            mysql_free_result(result);
+
+            /* check if update was successful */
+            /* NOTE: job may be taken already by another dispatcher */
+            if (mysql_affected_rows(db) == 0)
+                continue;
 
         /* END fake loop for query "exceptions" */
         } while (false);
@@ -1143,6 +1135,10 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     /* fetch single result */
     row = mysql_fetch_row(result);
     size = mysql_num_fields(result);
+
+    /* check if there is a row */
+    if (row == NULL)
+        return false;
 
     /* process single row */
     for (size_t i = 0; i < size; ++i) {
