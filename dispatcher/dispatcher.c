@@ -1125,6 +1125,9 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     MYSQL_FIELD *field;
     MYSQL_ROW row;
     size_t size;
+    char task_id[26]; /* ":task_id: "-2147483648"\n" */
+    char *line, *brkt, *output;
+    char *sep = "\n";
 
     /* init task structure */
     memset(task, 0, sizeof(dp_task));
@@ -1167,6 +1170,25 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
             sscanf(row[i], "%d", &task->priority);
         else if (!strcmp(field->name, "run_after"))
             sscanf(row[i], "%ld", &task->run_after);
+    }
+
+    /* At this point, we want to add the task id to the description */
+    if ((task->id != 0) && (task->description != 0)) {
+	/* Allocate enough to store extra line, including id value */
+	output = malloc(strlen(task->description) + 1 + 26);
+	for (line = strtok_r(task->description, sep, &brkt);
+	    line;
+	    line = strtok_r(NULL, sep, &brkt)) {
+
+	    strcat(output, line);
+	    strcat(output, "\n");
+	    if ((strncmp(":revision:", line, 10)) == 0) {
+		sprintf(task_id, ":task_id: \"%d\"\n", task->id);
+		strcat(output, task_id);
+	    }
+	}
+	free(task->description);
+	task->description = output;
     }
 
     return true;
