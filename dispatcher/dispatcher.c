@@ -1002,7 +1002,7 @@ bool dp_gearman_init(gearman_client_st **client)
         return false;
     }
 
-    dp_logger(LOG_INFO, "Gearman connection established");
+    dp_logger(LOG_INFO, "Gearman initialization successful");
     return true;
 }
 
