@@ -639,6 +639,10 @@ ac_includes_default="\
 #endif"
 
 ac_subst_vars='LTLIBOBJS
+YAML_RPATH
+YAML_CFLAGS
+YAML_LDFLAGS
+YAML_LIBS
 GEARMAN_RPATH
 GEARMAN_CFLAGS
 GEARMAN_LDFLAGS
@@ -706,6 +710,7 @@ enable_release
 enable_debug
 with_mysql
 with_gearman
+with_yaml
 with_rpath
 '
       ac_precious_vars='build_alias
@@ -1346,6 +1351,7 @@ Optional Packages:
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-mysql=PATH       provide base directory for libmysql
   --with-gearman=PATH     provide base directory for gearman
+  --with-yaml=PATH        provide base directory for libyaml
   --with-rpath            build with rpath if supported (default=yes)
 
 Some influential environment variables:
@@ -1810,6 +1816,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 ac_config_headers="$ac_config_headers config.h"
 
 
+
+# order of directories to check for dependencies
+deps_prefix_DIRS="/nexopia /usr"
 
 environment_CFLAGS="$CFLAGS"
 environment_LDFLAGS="$LDFLAGS"
@@ -5973,6 +5982,13 @@ fi
 
 
 
+# Check whether --with-yaml was given.
+if test "${with_yaml+set}" = set; then
+  withval=$with_yaml; with_YAML_DIR=$withval
+fi
+
+
+
 # Check whether --with-rpath was given.
 if test "${with_rpath+set}" = set; then
   withval=$with_rpath; with_RPATH=$withval
@@ -6081,9 +6097,9 @@ else
     LIBS="-lmysqlclient_r"
     ac_cv_MYSQL_DIR=""
 
-    for mysqldir in $with_MYSQL_DIR /nexopia /usr; do
+    for mysqldir in $with_MYSQL_DIR $deps_prefix_DIRS; do
         # Skip the directory if it isn't there.
-        if test ! -d "$mysqldir" ; then
+        if test ! -d "$mysqldir"; then
             continue
         fi
 
@@ -6202,9 +6218,9 @@ else
     LIBS="-lgearman"
     ac_cv_GEARMAN_DIR=""
 
-    for gearmandir in $with_GEARMAN_DIR /nexopia /usr; do
+    for gearmandir in $with_GEARMAN_DIR $deps_prefix_DIRS; do
         # Skip the directory if it isn't there.
-        if test ! -d "$gearmandir" ; then
+        if test ! -d "$gearmandir"; then
             continue
         fi
 
@@ -6296,6 +6312,122 @@ $as_echo "$ac_cv_GEARMAN_DIR" >&6; }
 if test x$ac_cv_GEARMAN_DIR = "x(missing)"; then
     { { $as_echo "$as_me:$LINENO: error: Could not find a linkable libgearman. You can specify an explicit path using --with-gearman" >&5
 $as_echo "$as_me: error: Could not find a linkable libgearman. You can specify an explicit path using --with-gearman" >&2;}
+   { (exit 1); exit 1; }; }
+fi
+
+
+
+
+
+
+# check for yaml
+{ $as_echo "$as_me:$LINENO: checking for yaml prefix directory" >&5
+$as_echo_n "checking for yaml prefix directory... " >&6; }
+if test "${ac_cv_YAML_DIR+set}" = set; then
+  $as_echo_n "(cached) " >&6
+else
+
+    saved_LIBS="$LIBS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_CFLAGS="$CFLAGS"
+
+    LIBS="-lyaml"
+    ac_cv_YAML_DIR=""
+
+    for yamldir in $with_YAML_DIR $deps_prefix_DIRS; do
+        # Skip the directory if it isn't there.
+        if test ! -d "$yamldir"; then
+            continue
+        fi
+
+        LDDIR="$yamldir/lib"
+        INCDIR="$yamldir/include"
+
+        LDFLAGS="-L$LDDIR"
+        CFLAGS="-I$INCDIR"
+
+        # Can I compile and link it?
+        cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+#include <yaml.h>
+int
+main ()
+{
+ yaml_parser_initialize(0);
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (ac_try="$ac_link"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval ac_try_echo="\"\$as_me:$LINENO: $ac_try_echo\""
+$as_echo "$ac_try_echo") >&5
+  (eval "$ac_link") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  $as_echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_c_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest$ac_exeext && {
+	 test "$cross_compiling" = yes ||
+	 $as_test_x conftest$ac_exeext
+       }; then
+   libyaml_linked=yes
+else
+  $as_echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+	 libyaml_linked=no
+fi
+
+rm -rf conftest.dSYM
+rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
+      conftest$ac_exeext conftest.$ac_ext
+
+        if test x$libyaml_linked = xyes; then
+            ac_cv_YAML_DIR=$yamldir
+            break
+        fi
+    done
+
+    if test ! -z $ac_cv_YAML_DIR; then
+        YAML_LIBS="$LIBS"
+        YAML_LDFLAGS="-L$LDDIR"
+        YAML_CFLAGS="-I$INCDIR"
+        YAML_RPATH=""
+
+        if test x$ac_cv_HAVE_RPATH = xyes; then
+            YAML_RPATH="$RPATH$LDDIR"
+        fi
+    else
+        ac_cv_YAML_DIR="(missing)"
+    fi
+
+    unset LDDIR
+    unset INCDIR
+
+    LIBS="$saved_LIBS"
+    LDFLAGS="$saved_LDFLAGS"
+    CFLAGS="$saved_CFLAGS"
+
+fi
+{ $as_echo "$as_me:$LINENO: result: $ac_cv_YAML_DIR" >&5
+$as_echo "$ac_cv_YAML_DIR" >&6; }
+
+if test x$ac_cv_YAML_DIR = "x(missing)"; then
+    { { $as_echo "$as_me:$LINENO: error: Could not find a linkable libyaml. You can specify an explicit path using --with-yaml" >&5
+$as_echo "$as_me: error: Could not find a linkable libyaml. You can specify an explicit path using --with-yaml" >&2;}
    { (exit 1); exit 1; }; }
 fi
 
