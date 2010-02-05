@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
         " -n <size>\tMaximum number of children";
 
     /* process command line parameters */
-    while ((option = getopt(argc, argv, "n:f:hVy:")) != -1)
+    while ((option = getopt(argc, argv, "n:f:hV")) != -1)
         switch (option) {
         case 'n':
             if (sscanf(optarg, "%"SCNu8, &child_limit) < 1) {
