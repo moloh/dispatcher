@@ -3,7 +3,6 @@
 /* TODO: portable printf format for pid_t (now %d) */
 
 /* global buffers */
-char        buffer[BUFFER_SIZE_MAX]; /* buffer for various tasks */
 dp_buffer  *query = NULL;            /* query buffer */
 
 int main(int argc, char *argv[])
@@ -20,29 +19,29 @@ int main(int argc, char *argv[])
         " -h\t\tPrint this help information\n"
         " -V\t\tShow version information\n"
         " -f <file>\tOverride configuration file location\n"
-        " -n <size>\tMaximum number of children\n";
+        " -n <size>\tMaximum number of children";
 
     /* process command line parameters */
-    while ((option = getopt(argc, argv, "n:f:hV")) != -1)
+    while ((option = getopt(argc, argv, "n:f:hVy:")) != -1)
         switch (option) {
-            case 'n':
-                if (sscanf(optarg, "%"SCNu8, &child_limit) < 1) {
-                    fprintf(stderr, "Invalid parameter value\n");
-                    return EXIT_FAILURE;
-                }
-                break;
-            case 'f':
-                cfg_location = optarg;
-                break;
-            case 'h':
-                fprintf(stdout, usage);
-                return EXIT_SUCCESS;
-            case 'V':
-                fprintf(stdout, PACKAGE_NAME", version "PACKAGE_VERSION"\n");
-                return EXIT_SUCCESS;
-            case '?':
-                fprintf(stdout, usage);
+        case 'n':
+            if (sscanf(optarg, "%"SCNu8, &child_limit) < 1) {
+                fprintf(stderr, "Invalid parameter value\n");
                 return EXIT_FAILURE;
+            }
+            break;
+        case 'f':
+            cfg_location = optarg;
+            break;
+        case 'h':
+            fprintf(stdout, "%s\n", usage);
+            return EXIT_SUCCESS;
+        case 'V':
+            fprintf(stdout, PACKAGE_NAME", version "PACKAGE_VERSION"\n");
+            return EXIT_SUCCESS;
+        case '?':
+            fprintf(stdout, "%s\n", usage);
+            return EXIT_FAILURE;
         }
 
     /* initialize buffers */
@@ -278,7 +277,7 @@ int main(int argc, char *argv[])
             if (mysql_affected_rows(db) == 0)
                 continue;
 
-        /* END fake loop for query "exceptions" */
+            /* END fake loop for query "exceptions" */
         } while (false);
 
         /* START fake loop for dispatching "exceptions" */
@@ -334,7 +333,7 @@ int main(int argc, char *argv[])
                                  worker->task.id);
                 dp_mysql_query(db, query->str, false);
 
-            /* fork successful */
+                /* fork successful */
             } else {
                 /* update worker status */
                 worker->pid = pid;
@@ -342,7 +341,7 @@ int main(int argc, char *argv[])
                 /* increase task count */
                 child_counter += 1;
             }
-        /* END fake loop for dispatching "exceptions" */
+            /* END fake loop for dispatching "exceptions" */
         } while (false);
 
         /* wait for next iteration
@@ -379,9 +378,8 @@ int dp_fork_exec(dp_child *worker)
     MYSQL *db = NULL;
 
     /* data extracted from worker result */
-    char *value, *yaml_elapsed;
-    bool status = false;
-    double elapsed;
+    dp_task_result result;
+    dp_buffer *description;
 
     /* initialize signal processing */
     if (!dp_fork_signal_init())
@@ -397,12 +395,16 @@ int dp_fork_exec(dp_child *worker)
     if (!dp_gearman_init(&client))
         return EXIT_FAILURE;
 
+    description = dp_yaml_task_description(&worker->task);
+    if (description == NULL)
+        return EXIT_FAILURE;
+
     /* process job */
     worker_result = gearman_client_do(client,
                                       worker->task.type,
                                       NULL,
-                                      worker->task.description,
-                                      strlen(worker->task.description),
+                                      description->str,
+                                      description->size,
                                       &worker_result_size,
                                       &error);
 
@@ -470,22 +472,10 @@ int dp_fork_exec(dp_child *worker)
     }
 
     /* process reply from gearman */
-    /* NOTE: reply may contain non-escaped characters */
-    status = dp_gearman_get_status(worker_result, worker_result_size);
-    value = dp_struescape(worker_result, worker_result_size);
-
-    /* extract time elapsed value from gearman */
-    yaml_elapsed = dp_yaml_value_size(worker_result,
-                                      worker_result_size,
-                                      ":time_elapsed: ");
-
-    /* validate time elapsed value */
-    if (yaml_elapsed == NULL ||
-        sscanf(yaml_elapsed, "%lf", &elapsed) < 1)
-        elapsed = 0.0;
+    dp_gearman_get_result(&result, worker_result, worker_result_size);
 
     /* prepare query to database */
-    if (status) {
+    if (result.status) {
 
         /* update task entry to indicate that it is done */
         dp_buffer_printf(query,
@@ -494,7 +484,7 @@ int dp_fork_exec(dp_child *worker)
                              "result_timestamp = '%ld', time_elapsed = '%.5lf' "
                          "WHERE id = %d",
                          cfg.mysql.table,
-                         timestamp, elapsed,
+                         timestamp, result.time_elapsed,
                          worker->task.id);
         if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
@@ -508,6 +498,7 @@ int dp_fork_exec(dp_child *worker)
         /* escape work details */
         char *type = dp_strescape(worker->task.type);
         char *description = dp_strescape(worker->task.description);
+        char *value = dp_struescape(worker_result, worker_result_size);
 
         /* specify run delay */
         time_t run_after = timestamp + cfg.task.failed_delay;
@@ -530,7 +521,7 @@ int dp_fork_exec(dp_child *worker)
                              "result_timestamp = '%ld', time_elapsed = '%.5lf' "
                          "WHERE id = %d",
                          cfg.mysql.table,
-                         value, timestamp, elapsed,
+                         value, timestamp, result.time_elapsed,
                          worker->task.id);
         if (!dp_mysql_query(db, query->str, true))
             return EXIT_FAILURE;
@@ -538,6 +529,7 @@ int dp_fork_exec(dp_child *worker)
         /* free temporary buffers */
         free(description);
         free(type);
+        free(value);
     }
 
     /* close gearman connection */
@@ -570,9 +562,9 @@ bool dp_config_init()
     memset(&config, 0, sizeof(dp_config));
 
     /* extract config location */
-    const char *config_location = (cfg_location == NULL)?
-        DP_CONFIG"/dispatcher.conf":
-        cfg_location;
+    const char *config_location = (cfg_location == NULL) ?
+                                  DP_CONFIG"/dispatcher.conf" :
+                                  cfg_location;
 
     /* open configuration file */
     fconfig = fopen(config_location, "r");
@@ -903,6 +895,7 @@ dp_buffer *dp_buffer_init(dp_buffer *buf, size_t pool)
 
     /* initialize buffer */
     buf->str[0] = '\0';
+    buf->size = 0;
     buf->pool = pool;
 
     return buf;
@@ -933,6 +926,7 @@ dp_buffer *dp_buffer_printf(dp_buffer *buf, const char *format, ...)
         char *str = malloc(len + 1);
         if (str == NULL) {
             /* failback buffer */
+            buf->size = 0;
             buf->str[0] = '\0';
 
             /* log our problem */
@@ -949,8 +943,43 @@ dp_buffer *dp_buffer_printf(dp_buffer *buf, const char *format, ...)
         /* adjust buffer */
         free(buf->str);
         buf->str = str;
+        buf->size = len;
         buf->pool = len + 1;
+    } else
+        /* adjust buffer */
+        buf->size = len;
+
+    return buf;
+}
+
+dp_buffer *dp_buffer_append(dp_buffer *buf,
+                            const dp_buffer *append)
+{
+    if (buf->pool < buf->size + append->size + 1) {
+        /* allocate updated buffer */
+        char *str = malloc(buf->size + append->size + 1);
+        if (str == NULL) {
+            /* log our problem */
+            dp_logger(LOG_ERR, "Memory exhaustion!");
+            return NULL;
+        }
+
+        /* copy previous contents */
+        if (buf->str != NULL)
+            memcpy(str, buf->str, buf->size);
+
+        /* free previous contents */
+        free(buf->str);
+
+        /* initialize updated buffer */
+        buf->pool = buf->size + append->size + 1;
+        buf->str = str;
     }
+
+   /* insert string into updated buffer */
+    memcpy(buf->str + buf->size, append->str, append->size);
+    buf->size += append->size;
+    buf->str[buf->size] = '\0';
 
     return buf;
 }
@@ -963,8 +992,9 @@ bool dp_gearman_init(gearman_client_st **client)
         return false;
     }
 
-    if (gearman_client_add_server(*client, cfg.gearman.host,
-                                           cfg.gearman.port)) {
+    if (gearman_client_add_server(*client,
+                                  cfg.gearman.host,
+                                  cfg.gearman.port)) {
         dp_logger(LOG_ERR,
                   "Gearman connection error (%d): %s",
                   gearman_client_errno(*client),
@@ -976,19 +1006,71 @@ bool dp_gearman_init(gearman_client_st **client)
     return true;
 }
 
-bool dp_gearman_get_status(const char *result, size_t size)
+bool dp_gearman_get_result(dp_task_result *result,
+                           const char *worker_result,
+                           size_t worker_result_size)
 {
-    /* find status string */
-    const char *pos = dp_strustr(result, size, ":status: ");
-    if (pos == NULL)
-        return false;
+    /* yaml structures */
+    yaml_parser_t parser;
+    yaml_document_t document;
+    yaml_node_t *root, *key, *value;
 
-    /* check if we have enough remaining space */
-    const size_t length = pos + 9 + 3 - result;
-    if (length > size || memcmp(pos + 9, ":ok", 3))
-        return false;
+    /* initialize document */
+    memset(&document, 0, sizeof(yaml_document_t));
+
+    /* initialize result */
+    result->status = false;
+    result->time_elapsed = 0.0;
+
+    /* initialize parser */
+    yaml_parser_initialize(&parser);
+    yaml_parser_set_encoding(&parser, YAML_UTF8_ENCODING);
+    yaml_parser_set_input_string(&parser,
+                                 (const yaml_char_t *)worker_result,
+                                 worker_result_size);
+
+    /* try to parse document */
+    if (!yaml_parser_load(&parser, &document))
+        goto error;
+
+    /* validate error */
+    root = yaml_document_get_root_node(&document);
+    if (root == NULL || root->type != YAML_MAPPING_NODE)
+        goto error;
+
+    /* parse fields */
+    for (yaml_node_pair_t *pair = root->data.mapping.pairs.start;
+         pair < root->data.mapping.pairs.top;
+         ++pair) {
+
+        /* extract key/value */
+        key = yaml_document_get_node(&document, pair->key);
+        value = yaml_document_get_node(&document, pair->value);
+        if (key->type != YAML_SCALAR_NODE || value->type != YAML_SCALAR_NODE)
+            continue;
+
+        /* parse value */
+        if (!strcmp((char *)key->data.scalar.value, ":status")) {
+            if (!strcmp((char *)value->data.scalar.value, ":ok"))
+                result->status = true;
+        } else if (!strcmp((char *)key->data.scalar.value, ":time_elapsed")) {
+            if (sscanf((char *)value->data.scalar.value, "%lf", &result->time_elapsed) < 1)
+                result->time_elapsed = 0.0;
+        }
+    }
+
+    /* clean yaml parsing data */
+    yaml_document_delete(&document);
+    yaml_parser_delete(&parser);
 
     return true;
+
+error:
+    /* clean yaml parsing data */
+    yaml_document_delete(&document);
+    yaml_parser_delete(&parser);
+
+    return false;
 }
 
 /* basic, logged initialization of MySQL */
@@ -1009,12 +1091,13 @@ bool dp_mysql_connect(MYSQL *db)
     if (!db) return false;
 
     /* try open connection */
-    if (!mysql_real_connect(db, cfg.mysql.host,
-                                cfg.mysql.user,
-                                cfg.mysql.passwd,
-                                cfg.mysql.db,
-                                cfg.mysql.port, NULL, /* port, socket */
-                                0)) {                 /* client flags */
+    if (!mysql_real_connect(db,
+                            cfg.mysql.host,
+                            cfg.mysql.user,
+                            cfg.mysql.passwd,
+                            cfg.mysql.db,
+                            cfg.mysql.port, NULL, /* port, socket */
+                            0)) {                 /* client flags */
         dp_logger(LOG_ERR, "MySQL connection error: %s", mysql_error(db));
         return false;
     }
@@ -1125,9 +1208,6 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
     MYSQL_FIELD *field;
     MYSQL_ROW row;
     size_t size;
-    char task_id[26]; /* ":task_id: "-2147483648"\n" */
-    char *line, *brkt, *output;
-    char *sep = "\n";
 
     /* init task structure */
     memset(task, 0, sizeof(dp_task));
@@ -1172,25 +1252,6 @@ bool dp_mysql_get_task(dp_task *task, MYSQL_RES *result)
             sscanf(row[i], "%ld", &task->run_after);
     }
 
-    /* At this point, we want to add the task id to the description */
-    if ((task->id != 0) && (task->description != 0)) {
-	/* Allocate enough to store extra line, including id value */
-	output = malloc(strlen(task->description) + 1 + 26);
-	for (line = strtok_r(task->description, sep, &brkt);
-	    line;
-	    line = strtok_r(NULL, sep, &brkt)) {
-
-	    strcat(output, line);
-	    strcat(output, "\n");
-	    if ((strncmp(":revision:", line, 10)) == 0) {
-		sprintf(task_id, ":task_id: \"%d\"\n", task->id);
-		strcat(output, task_id);
-	    }
-	}
-	free(task->description);
-	task->description = output;
-    }
-
     return true;
 }
 
@@ -1206,10 +1267,12 @@ bool dp_mysql_get_int(int *value, MYSQL_RES *result)
 
     /* validate row */
     if (mysql_num_rows(result) == 1 && mysql_num_fields(result) == 1)
-        if (row[0] != NULL)
+        if (row[0] != NULL) {
             sscanf(row[0], "%d", value);
+            return true;
+        }
 
-    return true;
+    return false;
 }
 
 void dp_mysql_task_free(dp_task *task)
@@ -1230,7 +1293,119 @@ void dp_mysql_task_clear(dp_task *task)
     task->description = NULL;
 }
 
-char *dp_yaml_value(const char *yaml, const char *field)
+int dp_yaml_write_handler(void *data,
+                          unsigned char *buffer,
+                          size_t size)
+{
+    const dp_buffer insert = {(char *)buffer, size, 0};
+
+    if (dp_buffer_append(data, &insert))
+        return 1;
+    return 0;
+}
+
+dp_buffer *dp_yaml_task_description(const dp_task *task)
+{
+    /* yaml structures */
+    yaml_parser_t parser;
+    yaml_emitter_t emitter;
+    yaml_document_t document;
+
+    /* return buffer */
+    dp_buffer *description;
+
+    /* initialize buffer and document */
+    description = dp_buffer_new(BUFFER_YAML);
+    memset(&document, 0, sizeof(yaml_document_t));
+
+    /* initialize parser */
+    yaml_parser_initialize(&parser);
+    yaml_parser_set_input_string(&parser,
+                                 (yaml_char_t *)task->description,
+                                 strlen(task->description));
+
+    /* initialize emitter */
+    yaml_emitter_initialize(&emitter);
+    yaml_emitter_set_output(&emitter, dp_yaml_write_handler, description);
+
+    /* try to parse document */
+    if (!yaml_parser_load(&parser, &document))
+        goto error;
+
+    /* add node with task id */
+    if (!dp_yaml_add_map_node_int(&document, ":task_id", task->id))
+        goto error;
+
+    /* emit modified yaml string */
+    if (!yaml_emitter_dump(&emitter, &document))
+        goto error;
+
+    /* clean yaml parsing data */
+    yaml_parser_delete(&parser);
+    yaml_emitter_delete(&emitter);
+    yaml_document_delete(&document);
+
+    return description;
+
+error:
+    /* clean yaml parsing data */
+    yaml_parser_delete(&parser);
+    yaml_emitter_delete(&emitter);
+    yaml_document_delete(&document);
+
+    /* free buffer data */
+    dp_buffer_free(description);
+
+    return NULL;
+}
+
+bool dp_yaml_add_map_node(yaml_document_t *document,
+                          const char *key,
+                          const char *value)
+{
+    yaml_node_t *node;
+    int key_id, value_id;
+
+    /* validate that root node is map */
+    node = yaml_document_get_root_node(document);
+    if (node == NULL || node->type != YAML_MAPPING_NODE)
+        return false;
+
+    /* add kay scalar */
+    key_id = yaml_document_add_scalar(document,
+                                      (yaml_char_t *)YAML_DEFAULT_SCALAR_TAG,
+                                      (yaml_char_t *)key, strlen(key),
+                                      YAML_PLAIN_SCALAR_STYLE);
+
+    /* add value scalar */
+    value_id = yaml_document_add_scalar(document,
+                                        (yaml_char_t *)YAML_DEFAULT_SCALAR_TAG,
+                                        (yaml_char_t *)value, strlen(value),
+                                        YAML_PLAIN_SCALAR_STYLE);
+
+    if (key_id == 0 || value_id == 0)
+        return false;
+
+    /* add key/value pair to root map */
+    if (!yaml_document_append_mapping_pair(document, 1, key_id, value_id))
+        return false;
+
+    return true;
+}
+
+bool dp_yaml_add_map_node_int(yaml_document_t *document,
+                              const char *key,
+                              int value)
+{
+    char buffer[16];
+
+    /* convert int value */
+    snprintf(buffer, sizeof(buffer), "%d", value);
+
+    return dp_yaml_add_map_node(document, key, buffer);
+}
+
+char *dp_yaml_field_line(const char *yaml, const char *field)
 {
     char *pos, *end;
 
@@ -1242,24 +1417,6 @@ char *dp_yaml_value(const char *yaml, const char *field)
     pos += strlen(field);
 
     end = strchr(pos, '\n');
-    if (end == NULL)
-        return NULL;
-
-    return dp_strudup(pos, end - pos);
-}
-
-char *dp_yaml_value_size(const char *yaml, size_t size, const char *field)
-{
-    char *pos, *end;
-
-    pos = dp_strustr(yaml, size, field);
-    if (pos == NULL)
-        return NULL;
-
-    /* move to end of the string */
-    pos += strlen(field);
-
-    end = dp_struchr(pos, size - (pos - yaml), '\n');
     if (end == NULL)
         return NULL;
 
@@ -1642,7 +1799,7 @@ void dp_status_update()
                           "Child worker (%d) job (%d) invalid exit (%d)",
                           worker->pid, worker->task.id, WEXITSTATUS(status));
 
-        /* check type of signal */
+            /* check type of signal */
         } else if (WIFSIGNALED(status)) {
             if (WTERMSIG(status) || WCOREDUMP(status)) {
                 /* NOTE: when child terminates then we do not update tasks
@@ -1656,8 +1813,8 @@ void dp_status_update()
                  * of timeout
                  */
                 if (worker->stamp == 0) {
-                    char *class = dp_yaml_value(worker->task.description, ":class: ");
-                    char *method = dp_yaml_value(worker->task.description, ":method_name: ");
+                    char *class = dp_yaml_field_line(worker->task.description, ":class: ");
+                    char *method = dp_yaml_field_line(worker->task.description, ":method_name: ");
 
                     dp_logger(LOG_ERR,
                               "Child worker (%d) job (%d) timeout (%s -> %s)",
