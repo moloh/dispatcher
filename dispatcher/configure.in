@@ -7,6 +7,9 @@ AC_CONFIG_SRCDIR([dispatcher.c])
 AC_CONFIG_HEADER([config.h])
 AC_PREFIX_DEFAULT(/nexopia)
 
+# order of directories to check for dependencies
+deps_prefix_DIRS="/nexopia /usr"
+
 environment_CFLAGS="$CFLAGS"
 environment_LDFLAGS="$LDFLAGS"
 
@@ -75,6 +78,12 @@ AC_ARG_WITH([gearman],
     [with_GEARMAN_DIR=$withval],
     [])
 
+AC_ARG_WITH([yaml],
+    AS_HELP_STRING([--with-yaml=PATH],
+        [provide base directory for libyaml]),
+    [with_YAML_DIR=$withval],
+    [])
+
 AC_ARG_WITH([rpath],
     AS_HELP_STRING([--with-rpath],
         [build with rpath if supported (default=yes)]),
@@ -124,9 +133,9 @@ AC_CACHE_CHECK([for mysql prefix directory], [ac_cv_MYSQL_DIR], [
     LIBS="-lmysqlclient_r"
     ac_cv_MYSQL_DIR=""
 
-    for mysqldir in $with_MYSQL_DIR /nexopia /usr; do
+    for mysqldir in $with_MYSQL_DIR $deps_prefix_DIRS; do
         # Skip the directory if it isn't there.
-        if test ! -d "$mysqldir" ; then
+        if test ! -d "$mysqldir"; then
             continue
         fi
 
@@ -191,9 +200,9 @@ AC_CACHE_CHECK([for gearman prefix directory], [ac_cv_GEARMAN_DIR], [
     LIBS="-lgearman"
     ac_cv_GEARMAN_DIR=""
 
-    for gearmandir in $with_GEARMAN_DIR /nexopia /usr; do
+    for gearmandir in $with_GEARMAN_DIR $deps_prefix_DIRS; do
         # Skip the directory if it isn't there.
-        if test ! -d "$gearmandir" ; then
+        if test ! -d "$gearmandir"; then
             continue
         fi
 
@@ -243,6 +252,68 @@ AC_SUBST([GEARMAN_LIBS])
 AC_SUBST([GEARMAN_LDFLAGS])
 AC_SUBST([GEARMAN_CFLAGS])
 AC_SUBST([GEARMAN_RPATH])
+
+# check for yaml
+AC_CACHE_CHECK([for yaml prefix directory], [ac_cv_YAML_DIR], [
+    saved_LIBS="$LIBS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_CFLAGS="$CFLAGS"
+
+    LIBS="-lyaml"
+    ac_cv_YAML_DIR=""
+
+    for yamldir in $with_YAML_DIR $deps_prefix_DIRS; do
+        # Skip the directory if it isn't there.
+        if test ! -d "$yamldir"; then
+            continue
+        fi
+
+        LDDIR="$yamldir/lib"
+        INCDIR="$yamldir/include"
+
+        LDFLAGS="-L$LDDIR"
+        CFLAGS="-I$INCDIR"
+
+        # Can I compile and link it?
+        AC_TRY_LINK([#include <yaml.h>], [ yaml_parser_initialize(0); ],
+            [ libyaml_linked=yes ],
+            [ libyaml_linked=no ])
+
+        if test x$libyaml_linked = xyes; then
+            ac_cv_YAML_DIR=$yamldir
+            break
+        fi
+    done
+
+    if test ! -z $ac_cv_YAML_DIR; then
+        YAML_LIBS="$LIBS"
+        YAML_LDFLAGS="-L$LDDIR"
+        YAML_CFLAGS="-I$INCDIR"
+        YAML_RPATH=""
+
+        if test x$ac_cv_HAVE_RPATH = xyes; then
+            YAML_RPATH="$RPATH$LDDIR"
+        fi
+    else
+        ac_cv_YAML_DIR="(missing)"
+    fi
+
+    unset LDDIR
+    unset INCDIR
+
+    LIBS="$saved_LIBS"
+    LDFLAGS="$saved_LDFLAGS"
+    CFLAGS="$saved_CFLAGS"
+])
+
+if test x$ac_cv_YAML_DIR = "x(missing)"; then
+    AC_MSG_ERROR([Could not find a linkable libyaml. You can specify an explicit path using --with-yaml])
+fi
+
+AC_SUBST([YAML_LIBS])
+AC_SUBST([YAML_LDFLAGS])
+AC_SUBST([YAML_CFLAGS])
+AC_SUBST([YAML_RPATH])
 
 AC_OUTPUT(Makefile)
 
