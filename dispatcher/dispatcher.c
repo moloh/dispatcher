@@ -1024,7 +1024,6 @@ bool dp_gearman_get_result(dp_task_result *result,
 
     /* initialize parser */
     yaml_parser_initialize(&parser);
-    yaml_parser_set_encoding(&parser, YAML_UTF8_ENCODING);
     yaml_parser_set_input_string(&parser,
                                  (const yaml_char_t *)worker_result,
                                  worker_result_size);
