@@ -75,6 +75,7 @@ typedef struct dp_config {
         uint16_t failed_delay;
         uint16_t timeout_delay;
         char *environment;
+        bool priority;
     } task;
 
     struct {
@@ -143,6 +144,7 @@ typedef enum dp_config_val {
     DP_CONFIG_TASK_FAILED_DELAY,
     DP_CONFIG_TASK_TIMEOUT_DELAY,
     DP_CONFIG_TASK_ENVIRONMENT,
+    DP_CONFIG_TASK_PRIORITY,
     DP_CONFIG_LOG_DISPATCHER,
     DP_CONFIG_LOG_WORKER,
     DP_CONFIG_LOG_LEVEL,
@@ -193,6 +195,7 @@ dp_enum dp_config_value[] = {
     {"task_failed_delay", DP_CONFIG_TASK_FAILED_DELAY},
     {"task_timeout_delay", DP_CONFIG_TASK_TIMEOUT_DELAY},
     {"task_environment", DP_CONFIG_TASK_ENVIRONMENT},
+    {"task_priority", DP_CONFIG_TASK_PRIORITY},
     {"log_dispatcher", DP_CONFIG_LOG_DISPATCHER},
     {"log_worker", DP_CONFIG_LOG_WORKER},
     {"log_level", DP_CONFIG_LOG_LEVEL},

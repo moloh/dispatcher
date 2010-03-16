@@ -190,8 +190,7 @@ int main(int argc, char *argv[])
             pause_timestamp = timestamp + cfg.sense.paused;
 
         /* log sense */
-        if (cfg.sense.loop &&
-            sense_timestamp < timestamp) {
+        if (cfg.sense.loop && sense_timestamp < timestamp) {
 
             dp_logger(LOG_NOTICE, "Dispatching (%"PRIu32") (%"PRIi32"/%"PRIi32")",
                       dispatched_counter,
@@ -226,25 +225,32 @@ int main(int argc, char *argv[])
             if (child_counter >= child_limit)
                 break;
 
+            /* setup optional ORDER BY */
+            const char *order_by = (cfg.task.priority) ?
+                                   "ORDER BY priority DESC" : "";
+
             /* get pending task, check specific environment */
             if (cfg.task.environment != NULL) {
                 dp_buffer_printf(query,
                                  "SELECT * FROM %s "
                                  "WHERE status IN ('new','working') AND run_after < %ld "
                                      "AND type LIKE '%%:%s:%%' "
-                                 "ORDER BY priority LIMIT 1",
+                                 "%s LIMIT 1",
                                  cfg.mysql.table,
                                  timestamp,
-                                 cfg.task.environment);
+                                 cfg.task.environment,
+                                 order_by);
             } else {
                 dp_buffer_printf(query,
                                  "SELECT * FROM %s "
                                  "WHERE status IN ('new','working') AND run_after < %ld "
-                                 "ORDER BY priority LIMIT 1",
+                                 "%s LIMIT 1",
                                  cfg.mysql.table,
-                                 timestamp);
+                                 timestamp,
+                                 order_by);
             }
 
+            printf("%s\n", query->str);
             /* execute query */
             if (!dp_mysql_query(db, query->str, false))
                 break;
@@ -611,9 +617,9 @@ bool dp_config_init()
     } else {
         dp_config_free(&config);
         if (initialized)
-            dp_logger(LOG_ERR, "Invalid configuration file at line (%"PRIu32")", line);
+            dp_logger(LOG_ERR, "Invalid configuration directive at line (%"PRIu32")", line);
         else
-            fprintf(stderr, "Invalid configuration file at line (%"PRIu32")\n", line);
+            fprintf(stderr, "Invalid configuration directive at line (%"PRIu32")\n", line);
         return false;
     }
 
@@ -811,6 +817,14 @@ bool dp_config_set(dp_config *config, dp_config_val field, char *value, bool if_
             else config->task.environment = dp_strdup(value);
         }
 
+        break;
+    case DP_CONFIG_TASK_PRIORITY:
+        if (!strcmp(value, "true") || !strcmp(value, "1"))
+            config->task.priority = true;
+        else if (!strcmp(value, "false") || !strcmp(value, "0"))
+            config->task.priority = false;
+        else
+            return false;
         break;
     case DP_CONFIG_LOG_DISPATCHER:
         if (config->log.dispatcher) free(config->log.dispatcher);
