@@ -232,7 +232,7 @@ int main(int argc, char *argv[])
                                  "SELECT * FROM %s "
                                  "WHERE status IN ('new','working') AND run_after < %ld "
                                      "AND type LIKE '%%:%s:%%' "
-                                 "ORDER BY priority DESC LIMIT 1",
+                                 "LIMIT 1",
                                  cfg.mysql.table,
                                  timestamp,
                                  cfg.task.environment);
@@ -240,7 +240,7 @@ int main(int argc, char *argv[])
                 dp_buffer_printf(query,
                                  "SELECT * FROM %s "
                                  "WHERE status IN ('new','working') AND run_after < %ld "
-                                 "ORDER BY priority DESC LIMIT 1",
+                                 "LIMIT 1",
                                  cfg.mysql.table,
                                  timestamp);
             }
