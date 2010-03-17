@@ -1014,7 +1014,7 @@ dp_buffer *dp_buffer_append_printf(dp_buffer *buf, const char *format, ...)
     len = vsnprintf(buf->str + buf->size, buf->pool - buf->size, format, arg);
     va_end(arg);
 
-    if (len >= buf->pool + buf->size) {
+    if (buf->size + len >= buf->pool) {
 
         /* allocate bigger buffer */
         char *str = malloc(len + buf->size + 1);
