@@ -171,8 +171,7 @@ int main(int argc, char *argv[])
             sense_timestamp = timestamp + cfg.sense.loop;
 
             /* Check if we should print sense information during pause */
-            if (cfg.sense.paused &&
-                pause_timestamp < timestamp) {
+            if (cfg.sense.paused && pause_timestamp < timestamp) {
 
                 dp_logger(LOG_NOTICE, "Sleeping (%"PRIi32"/%"PRIi32")",
                           child_counter, child_limit);
