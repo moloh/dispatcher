@@ -42,7 +42,7 @@ all: dispatcher
 test: $(TEST_OBJECT)
 	$(CC) $(TEST_OBJECT) $(OBJECT) $(LDFLAGS_REAL) -Wl,-zmuldefs -o test
 	@echo "Running tests"
-	@./test
+	@if [ -n "$(RUN)" ]; then $(RUN) ./test; else ./test; fi
 
 $(OBJECT): $(SOURCE) $(HEADER)
 	$(CC) $(CFLAGS_REAL) -c $*.c -o $*.o
