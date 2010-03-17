@@ -1,3 +1,7 @@
+2010-03-?? dispatcher 1.2.0
+
+* make priority handling configurable
+
 2010-02-05 dispatcher 1.1.0
 
 * add libyaml based yaml parsing
