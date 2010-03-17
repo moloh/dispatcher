@@ -39,9 +39,8 @@ LDFLAGS_REAL = $(LDFLAGS) $(MYSQL_LDFLAGS) $(GEARMAN_LDFLAGS) $(YAML_LDFLAGS)
 
 all: dispatcher
 
-test: $(TEST_OBJECT)
-	$(CC) $(TEST_OBJECT) $(OBJECT) $(LDFLAGS_REAL) -Wl,-zmuldefs -o test
-	$(RUN) ./test
+test: test_run
+	$(RUN) ./test_run
 
 $(OBJECT): $(SOURCE) $(HEADER)
 	$(CC) $(CFLAGS_REAL) -c $*.c -o $*.o
@@ -51,6 +50,9 @@ $(TEST_OBJECT): $(OBJECT) $(TEST_SOURCE) $(HEADER)
 
 dispatcher: $(OBJECT)
 	$(CC) $(OBJECT) $(LDFLAGS_REAL) -o dispatcher
+
+test_run: $(TEST_OBJECT)
+	$(CC) $(TEST_OBJECT) $(OBJECT) $(LDFLAGS_REAL) -Wl,-zmuldefs -o test_run
 
 clean:
 	rm -f dispatcher test
