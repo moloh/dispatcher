@@ -1,4 +1,5 @@
 2010-02-05 dispatcher 1.1.0
+
 * add libyaml based yaml parsing
 
 2009-11-24 dispatcher 1.0.0
