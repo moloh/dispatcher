@@ -1,4 +1,5 @@
 #include "dispatcher.h"
+#include "global.h"
 
 /* TODO: portable printf format for pid_t (now %d) */
 
@@ -897,15 +898,22 @@ dp_buffer *dp_buffer_new(size_t pool)
 
 dp_buffer *dp_buffer_init(dp_buffer *buf, size_t pool)
 {
-    /* allocate pool */
-    buf->str = malloc(pool);
-    if (buf->str == NULL)
-        return NULL;
+    /* handle empty buffer request */
+    if (pool == 0) {
+        buf->str = NULL;
+        buf->size = 0;
+        buf->pool = 0;
+    } else {
+        /* allocate pool */
+        buf->str = malloc(pool);
+        if (buf->str == NULL)
+            return NULL;
 
-    /* initialize buffer */
-    buf->str[0] = '\0';
-    buf->size = 0;
-    buf->pool = pool;
+        /* initialize buffer */
+        buf->str[0] = '\0';
+        buf->size = 0;
+        buf->pool = pool;
+    }
 
     return buf;
 }
@@ -933,16 +941,8 @@ dp_buffer *dp_buffer_printf(dp_buffer *buf, const char *format, ...)
 
         /* allocate bigger buffer */
         char *str = malloc(len + 1);
-        if (str == NULL) {
-            /* failback buffer */
-            buf->size = 0;
-            buf->str[0] = '\0';
-
-            /* log our problem */
-            dp_logger(LOG_ERR, "Memory exhaustion!");
-
-            return NULL;
-        }
+        if (str == NULL)
+            goto enomem_error;
 
         /* retry insert format string */
         va_start(arg, format);
@@ -959,6 +959,17 @@ dp_buffer *dp_buffer_printf(dp_buffer *buf, const char *format, ...)
         buf->size = len;
 
     return buf;
+
+enomem_error:
+
+    /* failback buffer */
+    buf->size = 0;
+    buf->str[0] = '\0';
+
+    /* log our problem */
+    dp_logger(LOG_ERR, "Memory exhaustion!");
+
+    return NULL;
 }
 
 dp_buffer *dp_buffer_append(dp_buffer *buf,
@@ -991,6 +1002,54 @@ dp_buffer *dp_buffer_append(dp_buffer *buf,
     buf->str[buf->size] = '\0';
 
     return buf;
+}
+
+dp_buffer *dp_buffer_append_printf(dp_buffer *buf, const char *format, ...)
+{
+    va_list arg;
+    size_t len;
+
+    /* append format string */
+    va_start(arg, format);
+    len = vsnprintf(buf->str + buf->size, buf->pool - buf->size, format, arg);
+    va_end(arg);
+
+    if (len >= buf->pool + buf->size) {
+
+        /* allocate bigger buffer */
+        char *str = malloc(len + buf->size + 1);
+        if (str == NULL)
+            goto enomem_error;
+
+        /* copy old buffer */
+        memcpy(str, buf->str, buf->size);
+
+        /* retry insert format string */
+        va_start(arg, format);
+        vsnprintf(str + buf->size, len + 1, format, arg);
+        va_end(arg);
+
+        /* adjust buffer */
+        free(buf->str);
+        buf->str = str;
+        buf->size += len;
+        buf->pool += len + 1;
+    } else
+        /* adjust buffer */
+        buf->size += len;
+
+    return buf;
+
+enomem_error:
+
+    /* failback buffer */
+    buf->size = 0;
+    buf->str[0] = '\0';
+
+    /* log our problem */
+    dp_logger(LOG_ERR, "Memory exhaustion!");
+
+    return NULL;
 }
 
 /* basic, logged initialization of gearman */

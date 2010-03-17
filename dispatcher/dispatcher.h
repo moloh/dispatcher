@@ -223,8 +223,8 @@ dp_buffer *dp_buffer_append(dp_buffer *buf,
                             const dp_buffer *append);
 
 /* append format string, grow as necessary */
-dp_buffer *dp_bufer_append_printf(dp_buffer *buf,
-                                  const char *format, ...) ATTRIBUTE_PRINTF(2, 3);
+dp_buffer *dp_buffer_append_printf(dp_buffer *buf,
+                                   const char *format, ...) ATTRIBUTE_PRINTF(2, 3);
 
 /*
  * gearman helper functions */
