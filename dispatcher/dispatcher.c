@@ -2,9 +2,6 @@
 
 /* TODO: portable printf format for pid_t (now %d) */
 
-/* global buffers */
-dp_buffer  *query = NULL;            /* query buffer */
-
 int main(int argc, char *argv[])
 {
     uint32_t dispatched_counter = 0;       /* number of dispatched tasks */
