@@ -249,7 +249,6 @@ int main(int argc, char *argv[])
                                  order_by);
             }
 
-            printf("%s\n", query->str);
             /* execute query */
             if (!dp_mysql_query(db, query->str, false))
                 break;
