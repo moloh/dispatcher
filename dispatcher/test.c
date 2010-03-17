@@ -47,6 +47,16 @@ bool dp_buffer_printf_test()
 
 bool dp_buffer_append_printf_test()
 {
+    dp_buffer *buf = dp_buffer_new(0);
+    if (dp_buffer_printf(buf, "%d int, %s string", 2, "foo") == NULL)
+        return false;
+    if (dp_buffer_append_printf(buf, "%d int, %s string", 2, "foo") == NULL)
+        return false;
+
+    if(strcmp(buf->str, "2 int, foo string2 int, foo string"))
+        return false;
+
+    dp_buffer_free(buf);
     return true;
 }
 
