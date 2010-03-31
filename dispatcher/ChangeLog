@@ -1,6 +1,7 @@
-2010-03-?? dispatcher 1.2.0
+2010-03-31 dispatcher 1.1.1
 
 * make priority handling configurable
+* add basic testing suite
 
 2010-02-05 dispatcher 1.1.0
 
